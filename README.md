@@ -11,7 +11,7 @@ cd ../forkgo-test
 ./test
 ```
 
-# test.go file:
+# forkgo-test/test.go file:
 
 ```go
 package main
