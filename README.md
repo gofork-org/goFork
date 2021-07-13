@@ -1,9 +1,14 @@
 # Compile forkgo
 git clone --depth 1 --recursive https://github.com/forkgo-org/go.git
+
 cd ./go/src
+
 ./all.bash
+
 cd ../bin
+
 ./go version
+
 
 # The Go Programming Language
 
