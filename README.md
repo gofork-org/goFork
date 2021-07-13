@@ -1,4 +1,4 @@
-# Compile forkgo
+# Compile forkgo:
 git clone --depth 1 --recursive https://github.com/forkgo-org/go.git
 
 cd ./go/src
