@@ -1,23 +1,18 @@
 # Compile forkgo:
+```bash
 git clone --depth 1 --recursive https://github.com/forkgo-org/go.git
-
 cd ./go/src
-
 ./all.bash
-
 cd ../bin
-
-./go version
-
+./go version           #go version devel go1.17-ed7efd3 ....
 cd ../forkgo-test
-
 ../bin/go mod init test
-
 ../bin/go build -ldflags="-s -w"
-
 ./test
+```
 
-The test.go file:
+# test.go file:
+
 ```go
 package main
 import
