@@ -2,7 +2,7 @@
 ```bash
 git clone --depth 1 --recursive https://github.com/forkgo-org/go.git
 cd ./go/src
-./all.bash
+./all.bash             #need 50 seconds to build forkgo compiler
 cd ../bin
 ./go version           #go version devel go1.17-ed7efd3 ....
 cd ../forkgo-test
