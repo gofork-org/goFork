@@ -17,6 +17,29 @@ cd ../forkgo-test
 
 ./test
 
+The test.go file:
+```go
+package main
+import
+(
+    "fmt"
+)
+
+
+func main()/
+{
+    if false/
+    {   fmt.Println("jack")
+        fmt.Println("forkgo")
+    } else/
+    {   fmt/
+           .Println("hello")
+        fmt.Println("forkgo")
+    }
+}
+
+```
+
 # The Go Programming Language
 
 Go is an open source programming language that makes it easy to build simple,
