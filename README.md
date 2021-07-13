@@ -9,6 +9,13 @@ cd ../bin
 
 ./go version
 
+cd ../forkgo-test
+
+../bin/go mod init test
+
+../bin/go build -ldflags="-s -w"
+
+./test
 
 # The Go Programming Language
 
