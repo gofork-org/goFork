@@ -1,3 +1,10 @@
+# The forkGo Programming Language
+
+forkGo is an open source programming language that makes it easy to build simple,
+reliable, and efficient software.
+
+![Gopher image](https://avatars.githubusercontent.com/u/86223803)
+
 # Compile forkgo:
 ```bash
 git clone --depth 1 --recursive https://github.com/forkgo-org/go.git
@@ -32,10 +39,3 @@ func main()/
 }
 
 ```
-
-# The forkGo Programming Language
-
-forkGo is an open source programming language that makes it easy to build simple,
-reliable, and efficient software.
-
-![Gopher image](https://avatars.githubusercontent.com/u/86223803)
