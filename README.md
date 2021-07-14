@@ -35,7 +35,7 @@ func main()/
 
 # The forkGo Programming Language
 
-Go is an open source programming language that makes it easy to build simple,
+forkGo is an open source programming language that makes it easy to build simple,
 reliable, and efficient software.
 
 ![Gopher image](https://avatars.githubusercontent.com/u/86223803)
