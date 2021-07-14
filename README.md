@@ -16,14 +16,12 @@ cd ../forkgo-test
 ```go
 package main
 import
-(
-    "fmt"
+(   "fmt"
 )
 
 
 func main()/
-{
-    if false/
+{   if false/
     {   fmt.Println("jack")
         fmt.Println("forkgo")
     } else/
