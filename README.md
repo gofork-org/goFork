@@ -1,7 +1,6 @@
-# The forkGo Programming Language
+# forkGo:
 
-forkGo is an open source programming language that makes it easy to build simple,
-reliable, and efficient software.
+Fork golang to support allman style of curly braces 
 
 ![Gopher image](https://avatars.githubusercontent.com/u/86223803)
 
