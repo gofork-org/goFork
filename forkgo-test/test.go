@@ -9,7 +9,8 @@ func main()
     {  fmt.Println("jack")
         fmt.Println("forkgo")
     } else
-    {  fmt.Println("hello")
+    {   fmt/
+          .Println("hello")
         fmt.Println("forkgo")
     }
 }
