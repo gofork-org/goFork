@@ -1,6 +1,7 @@
 # forkGo:
 
 Fork golang to support allman style of curly braces 
+The google guys don't like allman style, but it's very easy to support allman style, just added only 12 lines of code.
 
 ![Gopher image](https://avatars.githubusercontent.com/u/86223803)
 
