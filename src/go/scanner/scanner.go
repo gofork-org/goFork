@@ -922,11 +922,6 @@ scanAgain:
 		case '*':
 			tok = s.switch2(token.MUL, token.MUL_ASSIGN)
 		case '/':
-	                if s.ch == '\n' {
-				s.next()
-				goto scanAgain
-			}
-			
 			if s.ch == '/' || s.ch == '*' {
 				// comment
 				if s.insertSemi && s.findLineEnd() {
