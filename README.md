@@ -38,3 +38,5 @@ func main()
 }
 
 ```
+
+Note: in this style, the '{' at the beginning of the line needs to be followed by a space
