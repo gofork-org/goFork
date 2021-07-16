@@ -122,7 +122,7 @@ redo:
 		}
 		if s.ch == '{' {
 			s.nextch()
-			if s.ch == ' ' {
+			if s.ch == ' ' || s.ch == '\t' {
 				s.nextch()
 				s.tok = _Lbrace
 				break
