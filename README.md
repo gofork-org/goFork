@@ -26,11 +26,11 @@ import
 )
 
 
-func main()/
-{   if false/
+func main()
+{   if false
     {   fmt.Println("jack")
         fmt.Println("forkgo")
-    } else/
+    } else
     {   fmt/
            .Println("hello")
         fmt.Println("forkgo")
