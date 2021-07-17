@@ -10,10 +10,9 @@ The google guys don't like allman style, but it's very easy to support allman st
 ```bash
 git clone --depth 1 --recursive https://github.com/forkgo-org/go.git
 cd ./go/src
-./all.bash             #need 50 seconds to build forkgo compiler
-cd ../bin
-./go version           #go version devel go1.17-ed7efd3 ....
+./all.bash             #need 50 seconds to build forkgo compiler           
 cd ../forkgo-test
+../bin/go version      #go version devel go1.17-ed7efd3 ....
 ../bin/go mod init test
 ../bin/go build -ldflags="-s -w"
 ./test
@@ -49,6 +48,6 @@ func main()
 
 Note:
 
-1. In this style, the '{' at the beginning of the line needs to be followed by a space or a tab
+1. In this style, the '{' at the beginning of the line needs to be followed by a whitespace or a tab
 
 2. A seperate code block needs a precedent empty line
