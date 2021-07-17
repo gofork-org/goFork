@@ -117,7 +117,8 @@ redo:
 		s.tok = _EOF
 
 	case '\n':
-		for s.ch == ' ' || s.ch == '\t' || s.ch == '\n' || s.ch == '\r' {
+		s.nextch()
+		for s.ch == ' ' || s.ch == '\t' || s.ch == '\r' {
 			s.nextch()
 		}
 		if s.ch == '{' {

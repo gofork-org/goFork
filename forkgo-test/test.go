@@ -13,4 +13,10 @@ func main()
           .Println("hello")
         fmt.Println("forkgo")
     }
+
+    var a="hello"
+
+    {   var b="forkgo"
+        fmt.Println(a, b)
+    }
 }

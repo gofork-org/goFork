@@ -37,8 +37,18 @@ func main()
            .Println("hello")
         fmt.Println("forkgo")
     }
+
+    var a="hello"
+
+    {   var b="forkgo"
+        fmt.Println(a, b)
+    }
 }
 
 ```
 
-Note: in this style, the '{' at the beginning of the line needs to be followed by a space or a tab
+Note:
+
+1. In this style, the '{' at the beginning of the line needs to be followed by a space or a tab
+
+2. A seperate code block needs a precedent empty line
