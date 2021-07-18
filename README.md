@@ -18,7 +18,7 @@ cd ../forkgo-test
 ./test
 ```
 
-# forkgo-test/test.go file:
+# forkgo-test/test.go, allman style:
 
 ```go
 package main
@@ -46,8 +46,38 @@ func main()
 
 ```
 
-Note:
+Notes:
 
 1. In this style, the '{' at the beginning of the line needs to be followed by a whitespace or a tab
 
 2. A seperate code block needs a precedent empty line
+
+While forkGo keeps support for golang's K&R style:
+
+```go
+package main
+import(
+    "fmt"
+)
+
+
+func main()
+{   if false {
+        fmt.Println("jack")
+        fmt.Println("forkgo")
+    } else {
+        fmt.
+           Println("hello")
+        fmt.Println("forkgo")
+    }
+
+    var a="hello"
+    {
+        var b="forkgo"
+        fmt.Println(a, b)
+    }
+}
+
+```
+
+Note:  the '{' at the beginning of the line should not be followed by a whitespace or a tab
