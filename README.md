@@ -20,7 +20,7 @@ cd ../forkgo-test
 #if everything is ok, we can replace go with forkgo:
 sudo cp ../bin/go /usr/local/bin/go
 sudo mv /usr/local/go/bin/go /usr/local/go/bin/go.golang
-sudo hash -d go
+hash -d go
 type go        #if it shows "/usr/local/bin/go", we success
 ```
 
