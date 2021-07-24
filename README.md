@@ -21,8 +21,7 @@ cd ../forkgo-test
 sudo cp ../bin/go /usr/local/bin/go
 sudo rm /usr/local/go/bin/go
 sudo hash -d go
-type go
-#if it shows "/usr/local/bin/go", we success
+type go        #if it shows "/usr/local/bin/go", we success
 ```
 
 # forkgo-test/test.go, allman style:
