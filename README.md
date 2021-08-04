@@ -26,7 +26,7 @@ hash -d go
 type go        #if it shows "/usr/local/bin/go", we success
 ```
 
-# forkgo-test/test.go, allman style:
+# forkgo-test/test.go, Allman/Horstmann style:
 
 ```go
 package main
