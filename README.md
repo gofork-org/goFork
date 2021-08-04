@@ -1,10 +1,10 @@
 # forkGo:
 
-Fork golang to support allman style of curly braces 
+Fork golang to support Allman/Horstmann style of curly braces 
 
 The google guys don't like allman style, but it's very easy to support allman style, just added only 13 lines of code into golang compiler.
 
-Allman style is for we human, K&R style is for google robots.
+Allman/Horstmann style is for we human, K&R style is for google robots.
 
 ![Gopher image](https://avatars.githubusercontent.com/u/86223803)
 
