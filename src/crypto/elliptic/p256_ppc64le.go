@@ -49,6 +49,7 @@ func (curve p256CurveFast) Params() *CurveParams {
 func p256MulAsm(res, in1, in2 []byte)
 
 // Montgomery square modulo P256
+//
 func p256Sqr(res, in []byte) {
 	p256MulAsm(res, in, in)
 }
@@ -97,6 +98,7 @@ func p256PointDoubleAsm(res, in *p256Point)
 // The result should be a slice in LE order, but the slice
 // from big.Bytes is in BE order.
 // TODO: For big endian implementation, do not reverse bytes.
+//
 func fromBig(big *big.Int) []byte {
 	// This could be done a lot more efficiently...
 	res := big.Bytes()

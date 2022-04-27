@@ -186,6 +186,14 @@ type ClosureExpr struct {
 	IsGoWrap bool // whether this is wrapper closure of a go statement
 }
 
+// Deprecated: Use NewClosureFunc instead.
+func NewClosureExpr(pos src.XPos, fn *Func) *ClosureExpr {
+	n := &ClosureExpr{Func: fn}
+	n.op = OCLOSURE
+	n.pos = pos
+	return n
+}
+
 // A CompLitExpr is a composite literal Type{Vals}.
 // Before type-checking, the type is Ntype.
 type CompLitExpr struct {
@@ -194,10 +202,7 @@ type CompLitExpr struct {
 	Ntype    Ntype
 	List     Nodes // initialized values
 	Prealloc *Name
-	// For OSLICELIT, Len is the backing array length.
-	// For OMAPLIT, Len is the number of entries that we've removed from List and
-	// generated explicit mapassign calls for. This is used to inform the map alloc hint.
-	Len int64
+	Len      int64 // backing array length for OSLICELIT
 }
 
 func NewCompLitExpr(pos src.XPos, op Op, typ Ntype, list []Node) *CompLitExpr {
@@ -234,6 +239,7 @@ func NewConstExpr(val constant.Value, orig Node) Node {
 	n.orig = orig
 	n.SetType(orig.Type())
 	n.SetTypecheck(orig.Typecheck())
+	n.SetDiag(orig.Diag())
 	return n
 }
 
@@ -244,7 +250,8 @@ func (n *ConstExpr) Val() constant.Value { return n.val }
 // It may end up being a value or a type.
 type ConvExpr struct {
 	miniExpr
-	X Node
+	X           Node
+	NonEscaping bool // The allocation needed for the conversion to interface is known not to escape
 }
 
 func NewConvExpr(pos src.XPos, op Op, typ *types.Type, x Node) *ConvExpr {
@@ -951,11 +958,11 @@ var IsIntrinsicCall = func(*CallExpr) bool { return false }
 // instead of computing both. SameSafeExpr assumes that l and r are
 // used in the same statement or expression. In order for it to be
 // safe to reuse l or r, they must:
-//   - be the same expression
-//   - not have side-effects (no function calls, no channel ops);
-//     however, panics are ok
-//   - not cause inappropriate aliasing; e.g. two string to []byte
-//     conversions, must result in two distinct slices
+// * be the same expression
+// * not have side-effects (no function calls, no channel ops);
+//   however, panics are ok
+// * not cause inappropriate aliasing; e.g. two string to []byte
+//   conversions, must result in two distinct slices
 //
 // The handling of OINDEXMAP is subtle. OINDEXMAP can occur both
 // as an lvalue (map assignment) and an rvalue (map access). This is
@@ -963,12 +970,6 @@ var IsIntrinsicCall = func(*CallExpr) bool { return false }
 // lvalue expression is for OSLICE and OAPPEND optimizations, and it
 // is correct in those settings.
 func SameSafeExpr(l Node, r Node) bool {
-	for l.Op() == OCONVNOP {
-		l = l.(*ConvExpr).X
-	}
-	for r.Op() == OCONVNOP {
-		r = r.(*ConvExpr).X
-	}
 	if l.Op() != r.Op() || !types.Identical(l.Type(), r.Type()) {
 		return false
 	}
@@ -990,6 +991,11 @@ func SameSafeExpr(l Node, r Node) bool {
 	case ONOT, OBITNOT, OPLUS, ONEG:
 		l := l.(*UnaryExpr)
 		r := r.(*UnaryExpr)
+		return SameSafeExpr(l.X, r.X)
+
+	case OCONVNOP:
+		l := l.(*ConvExpr)
+		r := r.(*ConvExpr)
 		return SameSafeExpr(l.X, r.X)
 
 	case OCONV:
@@ -1024,12 +1030,6 @@ func SameSafeExpr(l Node, r Node) bool {
 // levels.
 func ShouldCheckPtr(fn *Func, level int) bool {
 	return base.Debug.Checkptr >= level && fn.Pragma&NoCheckPtr == 0
-}
-
-// ShouldAsanCheckPtr reports whether pointer checking should be enabled for
-// function fn when -asan is enabled.
-func ShouldAsanCheckPtr(fn *Func) bool {
-	return base.Flag.ASan && fn.Pragma&NoCheckPtr == 0
 }
 
 // IsReflectHeaderDataField reports whether l is an expression p.Data

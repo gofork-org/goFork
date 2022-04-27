@@ -22,6 +22,10 @@ func AssignConv(n ir.Node, t *types.Type, context string) ir.Node {
 	return assignconvfn(n, t, func() string { return context })
 }
 
+// DotImportRefs maps idents introduced by importDot back to the
+// ir.PkgName they were dot-imported through.
+var DotImportRefs map[*ir.Ident]*ir.PkgName
+
 // LookupNum looks up the symbol starting with prefix and ending with
 // the decimal n. If prefix is too long, LookupNum panics.
 func LookupNum(prefix string, n int) *types.Sym {
@@ -135,6 +139,9 @@ func NodNil() ir.Node {
 // modifies the tree with missing field names.
 func AddImplicitDots(n *ir.SelectorExpr) *ir.SelectorExpr {
 	n.X = typecheck(n.X, ctxType|ctxExpr)
+	if n.X.Diag() {
+		n.SetDiag(true)
+	}
 	t := n.X.Type()
 	if t == nil {
 		return n
@@ -288,7 +295,7 @@ var dotlist = make([]dlist, 10)
 
 // Convert node n for assignment to type t.
 func assignconvfn(n ir.Node, t *types.Type, context func() string) ir.Node {
-	if n == nil || n.Type() == nil {
+	if n == nil || n.Type() == nil || n.Type().Broke() {
 		return n
 	}
 
@@ -390,6 +397,11 @@ func Assignop1(src, dst *types.Type) (ir.Op, string) {
 			return ir.OCONVIFACE, ""
 		}
 		if implements(src, dst, &missing, &have, &ptr) {
+			return ir.OCONVIFACE, ""
+		}
+
+		// we'll have complained about this method anyway, suppress spurious messages.
+		if have != nil && have.Sym == missing.Sym && (have.Type.Broke() || missing.Type.Broke()) {
 			return ir.OCONVIFACE, ""
 		}
 
@@ -585,6 +597,9 @@ func Convertop(srcConstant bool, src, dst *types.Type) (ir.Op, string) {
 	// They must have same element type.
 	if src.IsSlice() && dst.IsPtr() && dst.Elem().IsArray() &&
 		types.Identical(src.Elem(), dst.Elem().Elem()) {
+		if !types.AllowsGoVersion(curpkg(), 1, 17) {
+			return ir.OXXX, ":\n\tconversion of slices to array pointers only supported as of -lang=go1.17"
+		}
 		return ir.OSLICE2ARRPTR, ""
 	}
 
@@ -774,6 +789,9 @@ func implements(t, iface *types.Type, m, samename **types.Field, ptr *int) bool 
 	}
 	i := 0
 	for _, im := range iface.AllMethods().Slice() {
+		if im.Broke() {
+			continue
+		}
 		for i < len(tms) && tms[i].Sym != im.Sym {
 			i++
 		}
@@ -1476,14 +1494,14 @@ func getShapes(t *types.Type, listp *[]*types.Type) {
 // For now, we only consider two types to have the same shape, if they have exactly
 // the same underlying type or they are both pointer types.
 //
-// tparam is the associated typeparam - it must be TTYPEPARAM type. If there is a
-// structural type for the associated type param (not common), then a pointer type t
-// is mapped to its underlying type, rather than being merged with other pointers.
+//  tparam is the associated typeparam - it must be TTYPEPARAM type. If there is a
+//  structural type for the associated type param (not common), then a pointer type t
+//  is mapped to its underlying type, rather than being merged with other pointers.
 //
-// Shape types are also distinguished by the index of the type in a type param/arg
-// list. We need to do this so we can distinguish and substitute properly for two
-// type params in the same function that have the same shape for a particular
-// instantiation.
+//  Shape types are also distinguished by the index of the type in a type param/arg
+//  list. We need to do this so we can distinguish and substitute properly for two
+//  type params in the same function that have the same shape for a particular
+//  instantiation.
 func Shapify(t *types.Type, index int, tparam *types.Type) *types.Type {
 	assert(!t.IsShape())
 	if t.HasShape() {
@@ -1522,6 +1540,9 @@ func Shapify(t *types.Type, index int, tparam *types.Type) *types.Type {
 		u = types.Types[types.TUINT8].PtrTo()
 	}
 
+	if shapeMap == nil {
+		shapeMap = map[int]map[*types.Type]*types.Type{}
+	}
 	submap := shapeMap[index]
 	if submap == nil {
 		submap = map[*types.Type]*types.Type{}
@@ -1552,4 +1573,4 @@ func Shapify(t *types.Type, index int, tparam *types.Type) *types.Type {
 	return s
 }
 
-var shapeMap = map[int]map[*types.Type]*types.Type{}
+var shapeMap map[int]map[*types.Type]*types.Type

@@ -672,7 +672,7 @@ func gcStart(trigger gcTrigger) {
 
 	// Assists and workers can start the moment we start
 	// the world.
-	gcController.startCycle(now, int(gomaxprocs), trigger)
+	gcController.startCycle(now, int(gomaxprocs))
 	work.heapGoal = gcController.heapGoal
 
 	// In STW mode, disable scheduling of user Gs. This may also
@@ -760,7 +760,7 @@ var gcMarkDoneFlushed uint32
 // This should be called when all local mark work has been drained and
 // there are no remaining workers. Specifically, when
 //
-//	work.nwait == work.nproc && !gcMarkWorkAvailable(p)
+//   work.nwait == work.nproc && !gcMarkWorkAvailable(p)
 //
 // The calling context must be preemptible.
 //
@@ -898,15 +898,15 @@ top:
 	// endCycle depends on all gcWork cache stats being flushed.
 	// The termination algorithm above ensured that up to
 	// allocations since the ragged barrier.
-	gcController.endCycle(now, int(gomaxprocs), work.userForced)
+	nextTriggerRatio := gcController.endCycle(now, int(gomaxprocs), work.userForced)
 
 	// Perform mark termination. This will restart the world.
-	gcMarkTermination()
+	gcMarkTermination(nextTriggerRatio)
 }
 
 // World must be stopped and mark assists and background workers must be
 // disabled.
-func gcMarkTermination() {
+func gcMarkTermination(nextTriggerRatio float64) {
 	// Start marktermination (write barrier remains enabled for now).
 	setGCPhase(_GCmarktermination)
 
@@ -976,7 +976,7 @@ func gcMarkTermination() {
 	memstats.last_heap_inuse = memstats.heap_inuse
 
 	// Update GC trigger and pacing for the next cycle.
-	gcController.commit()
+	gcController.commit(nextTriggerRatio)
 	gcPaceSweeper(gcController.trigger)
 	gcPaceScavenger(gcController.heapGoal, gcController.lastHeapGoal)
 
@@ -1297,9 +1297,9 @@ func gcBgMarkWorker() {
 			casgstatus(gp, _Gwaiting, _Grunning)
 		})
 
-		// Account for time and mark us as stopped.
+		// Account for time.
 		duration := nanotime() - startTime
-		gcController.markWorkerStop(pp.gcMarkWorkerMode, duration)
+		gcController.logWorkTime(pp.gcMarkWorkerMode, duration)
 		if pp.gcMarkWorkerMode == gcMarkWorkerFractionalMode {
 			atomic.Xaddint64(&pp.gcFractionalMarkTime, duration)
 		}

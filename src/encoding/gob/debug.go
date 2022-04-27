@@ -3,7 +3,6 @@
 // license that can be found in the LICENSE file.
 
 // Delete the next line to include in the gob package.
-//
 //go:build ignore
 
 package gob
@@ -215,7 +214,6 @@ func (deb *debugger) uint64() uint64 {
 }
 
 // GobStream:
-//
 //	DelimitedMessage* (until EOF)
 func (deb *debugger) gobStream() {
 	// Make sure we're single-threaded through here.
@@ -227,7 +225,6 @@ func (deb *debugger) gobStream() {
 }
 
 // DelimitedMessage:
-//
 //	uint(lengthOfMessage) Message
 func (deb *debugger) delimitedMessage(indent tab) bool {
 	for {
@@ -263,19 +260,12 @@ func (deb *debugger) loadBlock(eofOK bool) int {
 }
 
 // Message:
-//
 //	TypeSequence TypedValue
-//
 // TypeSequence
-//
 //	(TypeDefinition DelimitedTypeDefinition*)?
-//
 // DelimitedTypeDefinition:
-//
 //	uint(lengthOfTypeDefinition) TypeDefinition
-//
 // TypedValue:
-//
 //	int(typeId) Value
 func (deb *debugger) message(indent tab) bool {
 	for {
@@ -360,7 +350,6 @@ func (deb *debugger) delta(expect int) int {
 }
 
 // TypeDefinition:
-//
 //	[int(-typeId) (already read)] encodingOfWireType
 func (deb *debugger) typeDefinition(indent tab, id typeId) {
 	deb.dump("type definition for id %d", id)
@@ -447,7 +436,6 @@ func (deb *debugger) typeDefinition(indent tab, id typeId) {
 }
 
 // Value:
-//
 //	SingletonValue | StructValue
 func (deb *debugger) value(indent tab, id typeId) {
 	wire, ok := deb.wireType[id]
@@ -459,7 +447,6 @@ func (deb *debugger) value(indent tab, id typeId) {
 }
 
 // SingletonValue:
-//
 //	uint(0) FieldValue
 func (deb *debugger) singletonValue(indent tab, id typeId) {
 	deb.dump("Singleton value")
@@ -477,7 +464,6 @@ func (deb *debugger) singletonValue(indent tab, id typeId) {
 }
 
 // InterfaceValue:
-//
 //	NilInterfaceValue | NonNilInterfaceValue
 func (deb *debugger) interfaceValue(indent tab) {
 	deb.dump("Start of interface value")
@@ -489,7 +475,6 @@ func (deb *debugger) interfaceValue(indent tab) {
 }
 
 // NilInterfaceValue:
-//
 //	uint(0) [already read]
 func (deb *debugger) nilInterfaceValue(indent tab) int {
 	fmt.Fprintf(os.Stderr, "%snil interface\n", indent)
@@ -497,19 +482,12 @@ func (deb *debugger) nilInterfaceValue(indent tab) int {
 }
 
 // NonNilInterfaceValue:
-//
 //	ConcreteTypeName TypeSequence InterfaceContents
-//
 // ConcreteTypeName:
-//
 //	uint(lengthOfName) [already read=n] name
-//
 // InterfaceContents:
-//
 //	int(concreteTypeId) DelimitedValue
-//
 // DelimitedValue:
-//
 //	uint(length) Value
 func (deb *debugger) nonNilInterfaceValue(indent tab, nameLen int) {
 	// ConcreteTypeName
@@ -570,7 +548,6 @@ func (deb *debugger) printWireType(indent tab, wire *wireType) {
 
 // fieldValue prints a value of any type, such as a struct field.
 // FieldValue:
-//
 //	builtinValue | ArrayValue | MapValue | SliceValue | StructValue | InterfaceValue
 func (deb *debugger) fieldValue(indent tab, id typeId) {
 	_, ok := builtinIdToType[id]
@@ -644,7 +621,6 @@ func (deb *debugger) printBuiltin(indent tab, id typeId) {
 }
 
 // ArrayValue:
-//
 //	uint(n) FieldValue*n
 func (deb *debugger) arrayValue(indent tab, wire *wireType) {
 	elemId := wire.ArrayT.Elem
@@ -659,7 +635,6 @@ func (deb *debugger) arrayValue(indent tab, wire *wireType) {
 }
 
 // MapValue:
-//
 //	uint(n) (FieldValue FieldValue)*n  [n (key, value) pairs]
 func (deb *debugger) mapValue(indent tab, wire *wireType) {
 	keyId := wire.MapT.Key
@@ -673,7 +648,6 @@ func (deb *debugger) mapValue(indent tab, wire *wireType) {
 }
 
 // SliceValue:
-//
 //	uint(n) (n FieldValue)
 func (deb *debugger) sliceValue(indent tab, wire *wireType) {
 	elemId := wire.SliceT.Elem
@@ -687,7 +661,6 @@ func (deb *debugger) sliceValue(indent tab, wire *wireType) {
 }
 
 // StructValue:
-//
 //	(uint(fieldDelta) FieldValue)*
 func (deb *debugger) structValue(indent tab, id typeId) {
 	deb.dump("Start of struct value of %q id=%d\n<<\n", id.name(), id)
@@ -718,7 +691,6 @@ func (deb *debugger) structValue(indent tab, id typeId) {
 }
 
 // GobEncoderValue:
-//
 //	uint(n) byte*n
 func (deb *debugger) gobEncoderValue(indent tab, id typeId) {
 	len := deb.uint64()

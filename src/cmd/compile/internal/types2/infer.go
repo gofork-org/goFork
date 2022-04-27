@@ -21,12 +21,13 @@ const useConstraintTypeInference = true
 // If successful, infer returns the complete list of type arguments, one for each type parameter.
 // Otherwise the result is nil and appropriate errors will be reported.
 //
-// Inference proceeds as follows. Starting with given type arguments:
+// Inference proceeds as follows:
 //
-//  1. apply FTI (function type inference) with typed arguments,
-//  2. apply CTI (constraint type inference),
-//  3. apply FTI with untyped function arguments,
-//  4. apply CTI.
+//   Starting with given type arguments
+//   1) apply FTI (function type inference) with typed arguments,
+//   2) apply CTI (constraint type inference),
+//   3) apply FTI with untyped function arguments,
+//   4) apply CTI.
 //
 // The process stops as soon as all type arguments are known or an error occurs.
 func (check *Checker) infer(pos syntax.Pos, tparams []*TypeParam, targs []Type, params *Tuple, args []*operand) (result []Type) {
@@ -354,7 +355,7 @@ func typeParamsString(list []*TypeParam) string {
 	return b.String()
 }
 
-// isParameterized reports whether typ contains any of the type parameters of tparams.
+// IsParameterized reports whether typ contains any of the type parameters of tparams.
 func isParameterized(tparams []*TypeParam, typ Type) bool {
 	w := tpWalker{
 		seen:    make(map[Type]bool),

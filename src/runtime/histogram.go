@@ -84,7 +84,6 @@ type timeHistogram struct {
 //
 // Disallow preemptions and stack growths because this function
 // may run in sensitive locations.
-//
 //go:nosplit
 func (h *timeHistogram) record(duration int64) {
 	if duration < 0 {

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build unix
+//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris
 
 // DNS client: see RFC 1035.
 // Has to be linked into package net for Dial.
@@ -60,19 +60,6 @@ func newRequest(q dnsmessage.Question) (id uint16, udpReq, tcpReq []byte, err er
 	if err := b.Question(q); err != nil {
 		return 0, nil, nil, err
 	}
-
-	// Accept packets up to maxDNSPacketSize.  RFC 6891.
-	if err := b.StartAdditionals(); err != nil {
-		return 0, nil, nil, err
-	}
-	var rh dnsmessage.ResourceHeader
-	if err := rh.SetEDNS0(maxDNSPacketSize, dnsmessage.RCodeSuccess, false); err != nil {
-		return 0, nil, nil, err
-	}
-	if err := b.OPTResource(rh, dnsmessage.OPTResource{}); err != nil {
-		return 0, nil, nil, err
-	}
-
 	tcpReq, err = b.Finish()
 	udpReq = tcpReq[2:]
 	l := len(tcpReq) - 2

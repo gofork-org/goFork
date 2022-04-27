@@ -6,6 +6,7 @@ package runtime_test
 
 import (
 	"fmt"
+	"internal/goexperiment"
 	"math"
 	"math/rand"
 	. "runtime"
@@ -34,9 +35,11 @@ func TestGcPacer(t *testing.T) {
 			checker: func(t *testing.T, c []gcCycleResult) {
 				n := len(c)
 				if n >= 25 {
-					// For the pacer redesign, assert something even stronger: at this alloc/scan rate,
-					// it should be extremely close to the goal utilization.
-					assertInEpsilon(t, "GC utilization", c[n-1].gcUtilization, GCGoalUtilization, 0.005)
+					if goexperiment.PacerRedesign {
+						// For the pacer redesign, assert something even stronger: at this alloc/scan rate,
+						// it should be extremely close to the goal utilization.
+						assertInEpsilon(t, "GC utilization", c[n-1].gcUtilization, GCGoalUtilization, 0.005)
+					}
 
 					// Make sure the pacer settles into a non-degenerate state in at least 25 GC cycles.
 					assertInEpsilon(t, "GC utilization", c[n-1].gcUtilization, c[n-2].gcUtilization, 0.005)
@@ -61,10 +64,12 @@ func TestGcPacer(t *testing.T) {
 				// really handle this well, so don't check the goal ratio for it.
 				n := len(c)
 				if n >= 25 {
-					// For the pacer redesign, assert something even stronger: at this alloc/scan rate,
-					// it should be extremely close to the goal utilization.
-					assertInEpsilon(t, "GC utilization", c[n-1].gcUtilization, GCGoalUtilization, 0.005)
-					assertInRange(t, "goal ratio", c[n-1].goalRatio(), 0.95, 1.05)
+					if goexperiment.PacerRedesign {
+						// For the pacer redesign, assert something even stronger: at this alloc/scan rate,
+						// it should be extremely close to the goal utilization.
+						assertInEpsilon(t, "GC utilization", c[n-1].gcUtilization, GCGoalUtilization, 0.005)
+						assertInRange(t, "goal ratio", c[n-1].goalRatio(), 0.95, 1.05)
+					}
 
 					// Make sure the pacer settles into a non-degenerate state in at least 25 GC cycles.
 					assertInEpsilon(t, "GC utilization", c[n-1].gcUtilization, c[n-2].gcUtilization, 0.005)
@@ -88,10 +93,12 @@ func TestGcPacer(t *testing.T) {
 				// really handle this well, so don't check the goal ratio for it.
 				n := len(c)
 				if n >= 25 {
-					// For the pacer redesign, assert something even stronger: at this alloc/scan rate,
-					// it should be extremely close to the goal utilization.
-					assertInEpsilon(t, "GC utilization", c[n-1].gcUtilization, GCGoalUtilization, 0.005)
-					assertInRange(t, "goal ratio", c[n-1].goalRatio(), 0.95, 1.05)
+					if goexperiment.PacerRedesign {
+						// For the pacer redesign, assert something even stronger: at this alloc/scan rate,
+						// it should be extremely close to the goal utilization.
+						assertInEpsilon(t, "GC utilization", c[n-1].gcUtilization, GCGoalUtilization, 0.005)
+						assertInRange(t, "goal ratio", c[n-1].goalRatio(), 0.95, 1.05)
+					}
 
 					// Make sure the pacer settles into a non-degenerate state in at least 25 GC cycles.
 					assertInEpsilon(t, "GC utilization", c[n-1].gcUtilization, c[n-2].gcUtilization, 0.005)
@@ -180,7 +187,7 @@ func TestGcPacer(t *testing.T) {
 			length:        50,
 			checker: func(t *testing.T, c []gcCycleResult) {
 				n := len(c)
-				if n > 12 {
+				if goexperiment.PacerRedesign && n > 12 {
 					if n == 26 {
 						// In the 26th cycle there's a heap growth. Overshoot is expected to maintain
 						// a stable utilization, but we should *never* overshoot more than GOGC of
@@ -225,7 +232,12 @@ func TestGcPacer(t *testing.T) {
 					// 1. Utilization isn't varying _too_ much, and
 					// 2. The pacer is mostly keeping up with the goal.
 					assertInRange(t, "goal ratio", c[n-1].goalRatio(), 0.95, 1.05)
-					assertInRange(t, "GC utilization", c[n-1].gcUtilization, 0.25, 0.3)
+					if goexperiment.PacerRedesign {
+						assertInRange(t, "GC utilization", c[n-1].gcUtilization, 0.25, 0.3)
+					} else {
+						// The old pacer is messier here, and needs a lot more tolerance.
+						assertInRange(t, "GC utilization", c[n-1].gcUtilization, 0.25, 0.4)
+					}
 				}
 			},
 		},
@@ -248,7 +260,12 @@ func TestGcPacer(t *testing.T) {
 					// 1. Utilization isn't varying _too_ much, and
 					// 2. The pacer is mostly keeping up with the goal.
 					assertInRange(t, "goal ratio", c[n-1].goalRatio(), 0.95, 1.05)
-					assertInRange(t, "GC utilization", c[n-1].gcUtilization, 0.25, 0.3)
+					if goexperiment.PacerRedesign {
+						assertInRange(t, "GC utilization", c[n-1].gcUtilization, 0.25, 0.3)
+					} else {
+						// The old pacer is messier here, and needs a lot more tolerance.
+						assertInRange(t, "GC utilization", c[n-1].gcUtilization, 0.25, 0.4)
+					}
 				}
 			},
 		},
@@ -276,7 +293,12 @@ func TestGcPacer(t *testing.T) {
 					// Unlike the other tests, GC utilization here will vary more and tend higher.
 					// Just make sure it's not going too crazy.
 					assertInEpsilon(t, "GC utilization", c[n-1].gcUtilization, c[n-2].gcUtilization, 0.05)
-					assertInEpsilon(t, "GC utilization", c[n-1].gcUtilization, c[11].gcUtilization, 0.05)
+					if goexperiment.PacerRedesign {
+						assertInEpsilon(t, "GC utilization", c[n-1].gcUtilization, c[11].gcUtilization, 0.05)
+					} else {
+						// The old pacer is messier here, and needs a little more tolerance.
+						assertInEpsilon(t, "GC utilization", c[n-1].gcUtilization, c[11].gcUtilization, 0.07)
+					}
 				}
 			},
 		},
@@ -737,68 +759,4 @@ func FuzzPIController(f *testing.F) {
 			}
 		}
 	})
-}
-
-func TestIdleMarkWorkerCount(t *testing.T) {
-	const workers = 10
-	c := NewGCController(100)
-	c.SetMaxIdleMarkWorkers(workers)
-	for i := 0; i < workers; i++ {
-		if !c.NeedIdleMarkWorker() {
-			t.Fatalf("expected to need idle mark workers: i=%d", i)
-		}
-		if !c.AddIdleMarkWorker() {
-			t.Fatalf("expected to be able to add an idle mark worker: i=%d", i)
-		}
-	}
-	if c.NeedIdleMarkWorker() {
-		t.Fatalf("expected to not need idle mark workers")
-	}
-	if c.AddIdleMarkWorker() {
-		t.Fatalf("expected to not be able to add an idle mark worker")
-	}
-	for i := 0; i < workers; i++ {
-		c.RemoveIdleMarkWorker()
-		if !c.NeedIdleMarkWorker() {
-			t.Fatalf("expected to need idle mark workers after removal: i=%d", i)
-		}
-	}
-	for i := 0; i < workers-1; i++ {
-		if !c.AddIdleMarkWorker() {
-			t.Fatalf("expected to be able to add idle mark workers after adding again: i=%d", i)
-		}
-	}
-	for i := 0; i < 10; i++ {
-		if !c.AddIdleMarkWorker() {
-			t.Fatalf("expected to be able to add idle mark workers interleaved: i=%d", i)
-		}
-		if c.AddIdleMarkWorker() {
-			t.Fatalf("expected to not be able to add idle mark workers interleaved: i=%d", i)
-		}
-		c.RemoveIdleMarkWorker()
-	}
-	// Support the max being below the count.
-	c.SetMaxIdleMarkWorkers(0)
-	if c.NeedIdleMarkWorker() {
-		t.Fatalf("expected to not need idle mark workers after capacity set to 0")
-	}
-	if c.AddIdleMarkWorker() {
-		t.Fatalf("expected to not be able to add idle mark workers after capacity set to 0")
-	}
-	for i := 0; i < workers-1; i++ {
-		c.RemoveIdleMarkWorker()
-	}
-	if c.NeedIdleMarkWorker() {
-		t.Fatalf("expected to not need idle mark workers after capacity set to 0")
-	}
-	if c.AddIdleMarkWorker() {
-		t.Fatalf("expected to not be able to add idle mark workers after capacity set to 0")
-	}
-	c.SetMaxIdleMarkWorkers(1)
-	if !c.NeedIdleMarkWorker() {
-		t.Fatalf("expected to need idle mark workers after capacity set to 1")
-	}
-	if !c.AddIdleMarkWorker() {
-		t.Fatalf("expected to be able to add idle mark workers after capacity set to 1")
-	}
 }

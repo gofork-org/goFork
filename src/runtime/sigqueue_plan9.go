@@ -94,7 +94,6 @@ func sendNote(s *byte) bool {
 
 // Called to receive the next queued signal.
 // Must only be called from a single goroutine at a time.
-//
 //go:linkname signal_recv os/signal.signal_recv
 func signal_recv() string {
 	for {
@@ -118,7 +117,6 @@ func signal_recv() string {
 // the signal(s) in question, and here we are just waiting to make sure
 // that all the signals have been delivered to the user channels
 // by the os/signal package.
-//
 //go:linkname signalWaitUntilIdle os/signal.signalWaitUntilIdle
 func signalWaitUntilIdle() {
 	for {
@@ -133,7 +131,6 @@ func signalWaitUntilIdle() {
 }
 
 // Must only be called from a single goroutine at a time.
-//
 //go:linkname signal_enable os/signal.signal_enable
 func signal_enable(s uint32) {
 	if !sig.inuse {
@@ -144,13 +141,11 @@ func signal_enable(s uint32) {
 }
 
 // Must only be called from a single goroutine at a time.
-//
 //go:linkname signal_disable os/signal.signal_disable
 func signal_disable(s uint32) {
 }
 
 // Must only be called from a single goroutine at a time.
-//
 //go:linkname signal_ignore os/signal.signal_ignore
 func signal_ignore(s uint32) {
 }

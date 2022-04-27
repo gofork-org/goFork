@@ -211,14 +211,14 @@ func (z *Reader) readHeader() (hdr Header, err error) {
 	var s string
 	if flg&flagName != 0 {
 		if s, err = z.readString(); err != nil {
-			return hdr, noEOF(err)
+			return hdr, err
 		}
 		hdr.Name = s
 	}
 
 	if flg&flagComment != 0 {
 		if s, err = z.readString(); err != nil {
-			return hdr, noEOF(err)
+			return hdr, err
 		}
 		hdr.Comment = s
 	}

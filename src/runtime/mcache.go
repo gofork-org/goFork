@@ -156,25 +156,6 @@ func (c *mcache) refill(spc spanClass) {
 			throw("bad sweepgen in refill")
 		}
 		mheap_.central[spc].mcentral.uncacheSpan(s)
-
-		// Count up how many slots were used and record it.
-		stats := memstats.heapStats.acquire()
-		slotsUsed := uintptr(s.allocCount) - uintptr(s.allocCountBeforeCache)
-		atomic.Xadduintptr(&stats.smallAllocCount[spc.sizeclass()], slotsUsed)
-
-		// Flush tinyAllocs.
-		if spc == tinySpanClass {
-			atomic.Xadduintptr(&stats.tinyAllocCount, c.tinyAllocs)
-			c.tinyAllocs = 0
-		}
-		memstats.heapStats.release()
-
-		// Update heapLive and flush scanAlloc.
-		gcController.update(int64(slotsUsed*s.elemsize), int64(c.scanAlloc))
-		c.scanAlloc = 0
-
-		// Clear the second allocCount just to be safe.
-		s.allocCountBeforeCache = 0
 	}
 
 	// Get a new cached span from the central lists.
@@ -191,8 +172,24 @@ func (c *mcache) refill(spc spanClass) {
 	// sweeping in the next sweep phase.
 	s.sweepgen = mheap_.sweepgen + 3
 
-	// Store the current alloc count for accounting later.
-	s.allocCountBeforeCache = s.allocCount
+	// Assume all objects from this span will be allocated in the
+	// mcache. If it gets uncached, we'll adjust this.
+	stats := memstats.heapStats.acquire()
+	atomic.Xadduintptr(&stats.smallAllocCount[spc.sizeclass()], uintptr(s.nelems)-uintptr(s.allocCount))
+
+	// Flush tinyAllocs.
+	if spc == tinySpanClass {
+		atomic.Xadduintptr(&stats.tinyAllocCount, c.tinyAllocs)
+		c.tinyAllocs = 0
+	}
+	memstats.heapStats.release()
+
+	// Update heapLive with the same assumption.
+	// While we're here, flush scanAlloc, since we have to call
+	// revise anyway.
+	usedBytes := uintptr(s.allocCount) * s.elemsize
+	gcController.update(int64(s.npages*pageSize)-int64(usedBytes), int64(c.scanAlloc))
+	c.scanAlloc = 0
 
 	c.alloc[spc] = s
 }
@@ -238,16 +235,26 @@ func (c *mcache) releaseAll() {
 	scanAlloc := int64(c.scanAlloc)
 	c.scanAlloc = 0
 
+	sg := mheap_.sweepgen
+	dHeapLive := int64(0)
 	for i := range c.alloc {
 		s := c.alloc[i]
 		if s != &emptymspan {
-			// Adjust smallAllocCount for whatever was allocated.
+			// Adjust nsmallalloc in case the span wasn't fully allocated.
+			n := uintptr(s.nelems) - uintptr(s.allocCount)
 			stats := memstats.heapStats.acquire()
-			slotsUsed := uintptr(s.allocCount) - uintptr(s.allocCountBeforeCache)
-			atomic.Xadduintptr(&stats.smallAllocCount[spanClass(i).sizeclass()], slotsUsed)
+			atomic.Xadduintptr(&stats.smallAllocCount[spanClass(i).sizeclass()], -n)
 			memstats.heapStats.release()
-			s.allocCountBeforeCache = 0
-
+			if s.sweepgen != sg+1 {
+				// refill conservatively counted unallocated slots in gcController.heapLive.
+				// Undo this.
+				//
+				// If this span was cached before sweep, then
+				// gcController.heapLive was totally recomputed since
+				// caching this span, so we don't do this for
+				// stale spans.
+				dHeapLive -= int64(n) * int64(s.elemsize)
+			}
 			// Release the span to the mcentral.
 			mheap_.central[i].mcentral.uncacheSpan(s)
 			c.alloc[i] = &emptymspan
@@ -263,8 +270,8 @@ func (c *mcache) releaseAll() {
 	c.tinyAllocs = 0
 	memstats.heapStats.release()
 
-	// Updated heapScan.
-	gcController.update(0, scanAlloc)
+	// Updated heapScan and heapLive.
+	gcController.update(dHeapLive, scanAlloc)
 }
 
 // prepareForSweep flushes c if the system has entered a new sweep phase

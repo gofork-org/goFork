@@ -24,12 +24,13 @@ import (
 	"flag"
 	"fmt"
 	exec "internal/execabs"
-	"internal/txtar"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/tools/txtar"
 )
 
 func usage() {

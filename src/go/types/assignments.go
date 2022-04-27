@@ -9,7 +9,6 @@ package types
 import (
 	"fmt"
 	"go/ast"
-	"go/token"
 	"strings"
 )
 
@@ -39,7 +38,7 @@ func (check *Checker) assignment(x *operand, T Type, context string) {
 		// bool, rune, int, float64, complex128 or string respectively, depending
 		// on whether the value is a boolean, rune, integer, floating-point,
 		// complex, or string constant."
-		if T == nil || isNonTypeParamInterface(T) {
+		if T == nil || IsInterface(T) && !isTypeParam(T) {
 			if T == nil && x.typ == Typ[UntypedNil] {
 				check.errorf(x, _UntypedNil, "use of untyped nil in %s", context)
 				x.mode = invalid
@@ -340,10 +339,11 @@ func (check *Checker) initVars(lhs []*Var, origRHS []ast.Expr, returnStmt ast.St
 			} else if len(rhs) > 0 {
 				at = rhs[len(rhs)-1].expr // report at last value
 			}
-			err := newErrorf(at, _WrongResultCount, "%s return values", qualifier)
-			err.errorf(token.NoPos, "have %s", check.typesSummary(operandTypes(rhs), false))
-			err.errorf(token.NoPos, "want %s", check.typesSummary(varTypes(lhs), false))
-			check.report(err)
+			check.errorf(at, _WrongResultCount, "%s return values\n\thave %s\n\twant %s",
+				qualifier,
+				check.typesSummary(operandTypes(rhs), false),
+				check.typesSummary(varTypes(lhs), false),
+			)
 			return
 		}
 		if compilerErrorMessages {

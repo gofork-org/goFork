@@ -7,10 +7,13 @@
 package time
 
 import (
+	"runtime"
 	"syscall"
 )
 
-var platformZoneSources []string // none on Plan 9
+var zoneSources = []string{
+	runtime.GOROOT() + "/lib/time/zoneinfo.zip",
+}
 
 func isSpace(r rune) bool {
 	return r == ' ' || r == '\t' || r == '\n'

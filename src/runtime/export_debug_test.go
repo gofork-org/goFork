@@ -2,12 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build (amd64 || arm64) && linux
+//go:build amd64 && linux
 
 package runtime
 
 import (
 	"internal/abi"
+	"internal/goarch"
 	"unsafe"
 )
 
@@ -99,9 +100,10 @@ type debugCallHandler struct {
 
 	handleF func(info *siginfo, ctxt *sigctxt, gp2 *g) bool
 
-	err     plainError
-	done    note
-	sigCtxt sigContext
+	err       plainError
+	done      note
+	savedRegs sigcontext
+	savedFP   fpstate1
 }
 
 func (h *debugCallHandler) inject(info *siginfo, ctxt *sigctxt, gp2 *g) bool {
@@ -115,10 +117,18 @@ func (h *debugCallHandler) inject(info *siginfo, ctxt *sigctxt, gp2 *g) bool {
 			println("trap on wrong M", getg().m, h.mp)
 			return false
 		}
-		// Save the signal context
-		h.saveSigContext(ctxt)
+		// Push current PC on the stack.
+		rsp := ctxt.rsp() - goarch.PtrSize
+		*(*uint64)(unsafe.Pointer(uintptr(rsp))) = ctxt.rip()
+		ctxt.set_rsp(rsp)
+		// Write the argument frame size.
+		*(*uintptr)(unsafe.Pointer(uintptr(rsp - 16))) = h.argSize
+		// Save current registers.
+		h.savedRegs = *ctxt.regs()
+		h.savedFP = *h.savedRegs.fpstate
+		h.savedRegs.fpstate = nil
 		// Set PC to debugCallV2.
-		ctxt.setsigpc(uint64(abi.FuncPCABIInternal(debugCallV2)))
+		ctxt.set_rip(uint64(abi.FuncPCABIInternal(debugCallV2)))
 		// Call injected. Switch to the debugCall protocol.
 		testSigtrap = h.handleF
 	case _Grunnable:
@@ -144,33 +154,57 @@ func (h *debugCallHandler) handle(info *siginfo, ctxt *sigctxt, gp2 *g) bool {
 		println("trap on wrong M", getg().m, h.mp)
 		return false
 	}
-	f := findfunc(ctxt.sigpc())
+	f := findfunc(uintptr(ctxt.rip()))
 	if !(hasPrefix(funcname(f), "runtime.debugCall") || hasPrefix(funcname(f), "debugCall")) {
 		println("trap in unknown function", funcname(f))
 		return false
 	}
-	if !sigctxtAtTrapInstruction(ctxt) {
-		println("trap at non-INT3 instruction pc =", hex(ctxt.sigpc()))
+	if *(*byte)(unsafe.Pointer(uintptr(ctxt.rip() - 1))) != 0xcc {
+		println("trap at non-INT3 instruction pc =", hex(ctxt.rip()))
 		return false
 	}
 
-	switch status := sigctxtStatus(ctxt); status {
+	switch status := ctxt.r12(); status {
 	case 0:
 		// Frame is ready. Copy the arguments to the frame and to registers.
-		// Call the debug function.
-		h.debugCallRun(ctxt)
+		sp := ctxt.rsp()
+		memmove(unsafe.Pointer(uintptr(sp)), h.argp, h.argSize)
+		if h.regArgs != nil {
+			storeRegArgs(ctxt.regs(), h.regArgs)
+		}
+		// Push return PC.
+		sp -= goarch.PtrSize
+		ctxt.set_rsp(sp)
+		*(*uint64)(unsafe.Pointer(uintptr(sp))) = ctxt.rip()
+		// Set PC to call and context register.
+		ctxt.set_rip(uint64(h.fv.fn))
+		ctxt.regs().rdx = uint64(uintptr(unsafe.Pointer(h.fv)))
 	case 1:
 		// Function returned. Copy frame and result registers back out.
-		h.debugCallReturn(ctxt)
+		sp := ctxt.rsp()
+		memmove(h.argp, unsafe.Pointer(uintptr(sp)), h.argSize)
+		if h.regArgs != nil {
+			loadRegArgs(h.regArgs, ctxt.regs())
+		}
 	case 2:
 		// Function panicked. Copy panic out.
-		h.debugCallPanicOut(ctxt)
+		sp := ctxt.rsp()
+		memmove(unsafe.Pointer(&h.panic), unsafe.Pointer(uintptr(sp)), 2*goarch.PtrSize)
 	case 8:
 		// Call isn't safe. Get the reason.
-		h.debugCallUnsafe(ctxt)
+		sp := ctxt.rsp()
+		reason := *(*string)(unsafe.Pointer(uintptr(sp)))
+		h.err = plainError(reason)
 		// Don't wake h.done. We need to transition to status 16 first.
 	case 16:
-		h.restoreSigContext(ctxt)
+		// Restore all registers except RIP and RSP.
+		rip, rsp := ctxt.rip(), ctxt.rsp()
+		fp := ctxt.regs().fpstate
+		*ctxt.regs() = h.savedRegs
+		ctxt.regs().fpstate = fp
+		*fp = h.savedFP
+		ctxt.set_rip(rip)
+		ctxt.set_rsp(rsp)
 		// Done
 		notewakeup(&h.done)
 	default:

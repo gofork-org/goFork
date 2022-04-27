@@ -23,6 +23,7 @@ import (
 //
 //	func semawakeup(mp *m)
 //		Wake up mp, which is or will soon be sleeping on its semaphore.
+//
 const (
 	locked uintptr = 1
 
@@ -96,9 +97,8 @@ func unlock(l *mutex) {
 	unlockWithRank(l)
 }
 
-// We might not be holding a p in this code.
-//
 //go:nowritebarrier
+// We might not be holding a p in this code.
 func unlock2(l *mutex) {
 	gp := getg()
 	var mp *m

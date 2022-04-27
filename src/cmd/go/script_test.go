@@ -15,14 +15,12 @@ import (
 	"fmt"
 	"go/build"
 	"internal/testenv"
-	"internal/txtar"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +33,8 @@ import (
 	"cmd/go/internal/robustio"
 	"cmd/go/internal/work"
 	"cmd/internal/sys"
+
+	"golang.org/x/tools/txtar"
 )
 
 var testSum = flag.String("testsum", "", `may be tidy, listm, or listall. If set, TestScript generates a go.sum file at the beginning of each test and updates test files if they pass.`)
@@ -175,7 +175,7 @@ func (ts *testScript) setup() {
 		"GOPROXY=" + proxyURL,
 		"GOPRIVATE=",
 		"GOROOT=" + testGOROOT,
-		"GOROOT_FINAL=" + testGOROOT_FINAL, // causes spurious rebuilds and breaks the "stale" built-in if not propagated
+		"GOROOT_FINAL=" + os.Getenv("GOROOT_FINAL"), // causes spurious rebuilds and breaks the "stale" built-in if not propagated
 		"GOTRACEBACK=system",
 		"TESTGO_GOROOT=" + testGOROOT,
 		"GOSUMDB=" + testSumDBVerifierKey,
@@ -188,7 +188,6 @@ func (ts *testScript) setup() {
 		"goversion=" + goVersion(ts),
 		":=" + string(os.PathListSeparator),
 		"/=" + string(os.PathSeparator),
-		"CMDGO_TEST_RUN_MAIN=true",
 	}
 	if !testenv.HasExternalNetwork() {
 		ts.env = append(ts.env, "TESTGONETWORK=panic", "TESTGOVCS=panic")
@@ -374,19 +373,6 @@ Script:
 				ok = testenv.HasSymlink()
 			case "case-sensitive":
 				ok = isCaseSensitive(ts.t)
-			case "trimpath":
-				if info, _ := debug.ReadBuildInfo(); info == nil {
-					ts.fatalf("missing build info")
-				} else {
-					for _, s := range info.Settings {
-						if s.Key == "-trimpath" && s.Value == "true" {
-							ok = true
-							break
-						}
-					}
-				}
-			case "mismatched-goroot":
-				ok = testGOROOT_FINAL != "" && testGOROOT_FINAL != testGOROOT
 			default:
 				if strings.HasPrefix(cond.tag, "exec:") {
 					prog := cond.tag[len("exec:"):]
@@ -492,6 +478,7 @@ func isCaseSensitive(t *testing.T) bool {
 // Keep list and the implementations below sorted by name.
 //
 // NOTE: If you make changes here, update testdata/script/README too!
+//
 var scriptCmds = map[string]func(*testScript, simpleStatus, []string){
 	"addcrlf": (*testScript).cmdAddcrlf,
 	"cc":      (*testScript).cmdCc,
@@ -1374,9 +1361,7 @@ type command struct {
 // parse parses a single line as a list of space-separated arguments
 // subject to environment variable expansion (but not resplitting).
 // Single quotes around text disable splitting and expansion.
-// To embed a single quote, double it:
-//
-//	'Don''t communicate by sharing memory.'
+// To embed a single quote, double it: 'Don''t communicate by sharing memory.'
 func (ts *testScript) parse(line string) command {
 	ts.line = line
 

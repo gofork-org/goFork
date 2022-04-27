@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Api computes the exported API of a set of Go packages.
+// Binary api computes the exported API of a set of Go packages.
 package main
 
 import (
@@ -24,7 +24,6 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 )
@@ -34,24 +33,21 @@ func goCmd() string {
 	if runtime.GOOS == "windows" {
 		exeSuffix = ".exe"
 	}
-	if goroot := build.Default.GOROOT; goroot != "" {
-		path := filepath.Join(goroot, "bin", "go"+exeSuffix)
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
+	path := filepath.Join(runtime.GOROOT(), "bin", "go"+exeSuffix)
+	if _, err := os.Stat(path); err == nil {
+		return path
 	}
 	return "go"
 }
 
 // Flags
 var (
-	checkFiles      = flag.String("c", "", "optional comma-separated filename(s) to check API against")
-	requireApproval = flag.String("approval", "", "require approvals in comma-separated list of `files`")
-	allowNew        = flag.Bool("allow_new", true, "allow API additions")
-	exceptFile      = flag.String("except", "", "optional filename of packages that are allowed to change without triggering a failure in the tool")
-	nextFiles       = flag.String("next", "", "comma-separated list of `files` for upcoming API features for the next release. These files can be lazily maintained. They only affects the delta warnings from the -c file printed on success.")
-	verbose         = flag.Bool("v", false, "verbose debugging")
-	forceCtx        = flag.String("contexts", "", "optional comma-separated list of <goos>-<goarch>[-cgo] to override default contexts.")
+	checkFile  = flag.String("c", "", "optional comma-separated filename(s) to check API against")
+	allowNew   = flag.Bool("allow_new", true, "allow API additions")
+	exceptFile = flag.String("except", "", "optional filename of packages that are allowed to change without triggering a failure in the tool")
+	nextFile   = flag.String("next", "", "optional filename of tentative upcoming API features for the next release. This file can be lazily maintained. It only affects the delta warnings from the -c file printed on success.")
+	verbose    = flag.Bool("v", false, "verbose debugging")
+	forceCtx   = flag.String("contexts", "", "optional comma-separated list of <goos>-<goarch>[-cgo] to override default contexts.")
 )
 
 // contexts are the default contexts which are scanned, unless
@@ -129,14 +125,10 @@ var internalPkg = regexp.MustCompile(`(^|/)internal($|/)`)
 func main() {
 	flag.Parse()
 
-	if build.Default.GOROOT == "" {
-		log.Fatalf("GOROOT not found. (If binary was built with -trimpath, $GOROOT must be set.)")
-	}
-
 	if !strings.Contains(runtime.Version(), "weekly") && !strings.Contains(runtime.Version(), "devel") {
-		if *nextFiles != "" {
-			fmt.Printf("Go version is %q, ignoring -next %s\n", runtime.Version(), *nextFiles)
-			*nextFiles = ""
+		if *nextFile != "" {
+			fmt.Printf("Go version is %q, ignoring -next %s\n", runtime.Version(), *nextFile)
+			*nextFile = ""
 		}
 	}
 
@@ -209,7 +201,7 @@ func main() {
 	bw := bufio.NewWriter(os.Stdout)
 	defer bw.Flush()
 
-	if *checkFiles == "" {
+	if *checkFile == "" {
 		sort.Strings(features)
 		for _, f := range features {
 			fmt.Fprintln(bw, f)
@@ -218,15 +210,10 @@ func main() {
 	}
 
 	var required []string
-	for _, file := range strings.Split(*checkFiles, ",") {
+	for _, file := range strings.Split(*checkFile, ",") {
 		required = append(required, fileFeatures(file)...)
 	}
-	var optional []string
-	if *nextFiles != "" {
-		for _, file := range strings.Split(*nextFiles, ",") {
-			optional = append(optional, fileFeatures(file)...)
-		}
-	}
+	optional := fileFeatures(*nextFile)
 	exception := fileFeatures(*exceptFile)
 	fail = !compareAPI(bw, features, required, optional, exception, *allowNew)
 }
@@ -353,13 +340,6 @@ func fileFeatures(filename string) []string {
 	if filename == "" {
 		return nil
 	}
-	needApproval := false
-	for _, name := range strings.Split(*requireApproval, ",") {
-		if filename == name {
-			needApproval = true
-			break
-		}
-	}
 	bs, err := os.ReadFile(filename)
 	if err != nil {
 		log.Fatalf("Error reading file %s: %v", filename, err)
@@ -368,23 +348,11 @@ func fileFeatures(filename string) []string {
 	s = aliasReplacer.Replace(s)
 	lines := strings.Split(s, "\n")
 	var nonblank []string
-	for i, line := range lines {
+	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+		if line != "" && !strings.HasPrefix(line, "#") {
+			nonblank = append(nonblank, line)
 		}
-		if needApproval {
-			feature, approval, ok := strings.Cut(line, "#")
-			if !ok {
-				log.Fatalf("%s:%d: missing proposal approval\n", filename, i+1)
-			}
-			_, err := strconv.Atoi(approval)
-			if err != nil {
-				log.Fatalf("%s:%d: malformed proposal approval #%s\n", filename, i+1, approval)
-			}
-			line = strings.TrimSpace(feature)
-		}
-		nonblank = append(nonblank, line)
 	}
 	return nonblank
 }

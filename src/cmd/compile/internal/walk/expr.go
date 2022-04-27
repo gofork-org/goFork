@@ -20,8 +20,7 @@ import (
 )
 
 // The result of walkExpr MUST be assigned back to n, e.g.
-//
-//	n.Left = walkExpr(n.Left, init)
+// 	n.Left = walkExpr(n.Left, init)
 func walkExpr(n ir.Node, init *ir.Nodes) ir.Node {
 	if n == nil {
 		return n
@@ -724,23 +723,21 @@ func walkIndex(n *ir.IndexExpr, init *ir.Nodes) ir.Node {
 }
 
 // mapKeyArg returns an expression for key that is suitable to be passed
-// as the key argument for runtime map* functions.
+// as the key argument for mapaccess and mapdelete functions.
 // n is is the map indexing or delete Node (to provide Pos).
-func mapKeyArg(fast int, n, key ir.Node, assigned bool) ir.Node {
-	if fast == mapslow {
-		// standard version takes key by reference.
-		// orderState.expr made sure key is addressable.
-		return typecheck.NodAddr(key)
-	}
-	if assigned {
-		// mapassign does distinguish pointer vs. integer key.
-		return key
-	}
-	// mapaccess and mapdelete don't distinguish pointer vs. integer key.
+// Note: this is not used for mapassign, which does distinguish pointer vs.
+// integer key.
+func mapKeyArg(fast int, n, key ir.Node) ir.Node {
 	switch fast {
+	case mapslow:
+		// standard version takes key by reference.
+		// order.expr made sure key is addressable.
+		return typecheck.NodAddr(key)
 	case mapfast32ptr:
+		// mapaccess and mapdelete don't distinguish pointer vs. integer key.
 		return ir.NewConvExpr(n.Pos(), ir.OCONVNOP, types.Types[types.TUINT32], key)
 	case mapfast64ptr:
+		// mapaccess and mapdelete don't distinguish pointer vs. integer key.
 		return ir.NewConvExpr(n.Pos(), ir.OCONVNOP, types.Types[types.TUINT64], key)
 	default:
 		// fast version takes key by value.
@@ -749,27 +746,34 @@ func mapKeyArg(fast int, n, key ir.Node, assigned bool) ir.Node {
 }
 
 // walkIndexMap walks an OINDEXMAP node.
-// It replaces m[k] with *map{access1,assign}(maptype, m, &k)
 func walkIndexMap(n *ir.IndexExpr, init *ir.Nodes) ir.Node {
+	// Replace m[k] with *map{access1,assign}(maptype, m, &k)
 	n.X = walkExpr(n.X, init)
 	n.Index = walkExpr(n.Index, init)
 	map_ := n.X
+	key := n.Index
 	t := map_.Type()
-	fast := mapfast(t)
-	key := mapKeyArg(fast, n, n.Index, n.Assigned)
-	args := []ir.Node{reflectdata.TypePtr(t), map_, key}
-
-	var mapFn ir.Node
-	switch {
-	case n.Assigned:
-		mapFn = mapfn(mapassign[fast], t, false)
-	case t.Elem().Size() > zeroValSize:
-		args = append(args, reflectdata.ZeroAddr(t.Elem().Size()))
-		mapFn = mapfn("mapaccess1_fat", t, true)
-	default:
-		mapFn = mapfn(mapaccess1[fast], t, false)
+	var call *ir.CallExpr
+	if n.Assigned {
+		// This m[k] expression is on the left-hand side of an assignment.
+		fast := mapfast(t)
+		if fast == mapslow {
+			// standard version takes key by reference.
+			// order.expr made sure key is addressable.
+			key = typecheck.NodAddr(key)
+		}
+		call = mkcall1(mapfn(mapassign[fast], t, false), nil, init, reflectdata.TypePtr(t), map_, key)
+	} else {
+		// m[k] is not the target of an assignment.
+		fast := mapfast(t)
+		key = mapKeyArg(fast, n, key)
+		if w := t.Elem().Size(); w <= zeroValSize {
+			call = mkcall1(mapfn(mapaccess1[fast], t, false), types.NewPtr(t.Elem()), init, reflectdata.TypePtr(t), map_, key)
+		} else {
+			z := reflectdata.ZeroAddr(w)
+			call = mkcall1(mapfn("mapaccess1_fat", t, true), types.NewPtr(t.Elem()), init, reflectdata.TypePtr(t), map_, key, z)
+		}
 	}
-	call := mkcall1(mapFn, nil, init, args...)
 	call.SetType(types.NewPtr(t.Elem()))
 	call.MarkNonNil() // mapaccess1* and mapassign always return non-nil pointers.
 	star := ir.NewStarExpr(base.Pos, call)
@@ -1007,6 +1011,9 @@ func usefield(n *ir.SelectorExpr) {
 	}
 	if outer.Sym() == nil {
 		base.Errorf("tracked field must be in named struct type")
+	}
+	if !types.IsExported(field.Sym.Name) {
+		base.Errorf("tracked field must be exported (upper case)")
 	}
 
 	sym := reflectdata.TrackSym(outer, field)

@@ -126,7 +126,6 @@ func initsig(preinit bool) {
 }
 
 // May run with m.p==nil, so write barriers are not allowed.
-//
 //go:nowritebarrier
 func newosproc(mp *m) {
 	panic("newosproc: not implemented")

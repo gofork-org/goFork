@@ -272,7 +272,6 @@ func (gp *guintptr) cas(old, new guintptr) bool {
 
 // setGNoWB performs *gp = new without a write barrier.
 // For times when it's impractical to use a guintptr.
-//
 //go:nosplit
 //go:nowritebarrier
 func setGNoWB(gp **g, new *g) {
@@ -292,10 +291,10 @@ func (pp *puintptr) set(p *p) { *pp = puintptr(unsafe.Pointer(p)) }
 // Because we do free Ms, there are some additional constrains on
 // muintptrs:
 //
-//  1. Never hold an muintptr locally across a safe point.
+// 1. Never hold an muintptr locally across a safe point.
 //
-//  2. Any muintptr in the heap must be owned by the M itself so it can
-//     ensure it is not in use when the last true *m is released.
+// 2. Any muintptr in the heap must be owned by the M itself so it can
+//    ensure it is not in use when the last true *m is released.
 type muintptr uintptr
 
 //go:nosplit
@@ -306,7 +305,6 @@ func (mp *muintptr) set(m *m) { *mp = muintptr(unsafe.Pointer(m)) }
 
 // setMNoWB performs *mp = new without a write barrier.
 // For times when it's impractical to use an muintptr.
-//
 //go:nosplit
 //go:nowritebarrier
 func setMNoWB(mp **m, new *m) {
@@ -516,7 +514,6 @@ type m struct {
 	g0      *g     // goroutine with scheduling stack
 	morebuf gobuf  // gobuf arg to morestack
 	divmod  uint32 // div/mod denominator for arm - known to liblink
-	_       uint32 // align next field to 8 bytes
 
 	// Fields not known to debuggers.
 	procid        uint64            // for debuggers, but offset not hard-coded
@@ -1132,5 +1129,5 @@ var (
 	isarchive bool // -buildmode=c-archive
 )
 
-// Must agree with internal/buildcfg.FramePointerEnabled.
+// Must agree with internal/buildcfg.Experiment.FramePointer.
 const framepointer_enabled = GOARCH == "amd64" || GOARCH == "arm64"

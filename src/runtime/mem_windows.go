@@ -23,13 +23,13 @@ const (
 
 // Don't split the stack as this function may be invoked without a valid G,
 // which prevents us from allocating more stack.
-//
 //go:nosplit
-func sysAllocOS(n uintptr) unsafe.Pointer {
+func sysAlloc(n uintptr, sysStat *sysMemStat) unsafe.Pointer {
+	sysStat.add(int64(n))
 	return unsafe.Pointer(stdcall4(_VirtualAlloc, 0, n, _MEM_COMMIT|_MEM_RESERVE, _PAGE_READWRITE))
 }
 
-func sysUnusedOS(v unsafe.Pointer, n uintptr) {
+func sysUnused(v unsafe.Pointer, n uintptr) {
 	r := stdcall3(_VirtualFree, uintptr(v), n, _MEM_DECOMMIT)
 	if r != 0 {
 		return
@@ -59,7 +59,7 @@ func sysUnusedOS(v unsafe.Pointer, n uintptr) {
 	}
 }
 
-func sysUsedOS(v unsafe.Pointer, n uintptr) {
+func sysUsed(v unsafe.Pointer, n uintptr) {
 	p := stdcall4(_VirtualAlloc, uintptr(v), n, _MEM_COMMIT, _PAGE_READWRITE)
 	if p == uintptr(v) {
 		return
@@ -91,14 +91,14 @@ func sysUsedOS(v unsafe.Pointer, n uintptr) {
 	}
 }
 
-func sysHugePageOS(v unsafe.Pointer, n uintptr) {
+func sysHugePage(v unsafe.Pointer, n uintptr) {
 }
 
 // Don't split the stack as this function may be invoked without a valid G,
 // which prevents us from allocating more stack.
-//
 //go:nosplit
-func sysFreeOS(v unsafe.Pointer, n uintptr) {
+func sysFree(v unsafe.Pointer, n uintptr, sysStat *sysMemStat) {
+	sysStat.add(-int64(n))
 	r := stdcall3(_VirtualFree, uintptr(v), 0, _MEM_RELEASE)
 	if r == 0 {
 		print("runtime: VirtualFree of ", n, " bytes failed with errno=", getlasterror(), "\n")
@@ -106,12 +106,12 @@ func sysFreeOS(v unsafe.Pointer, n uintptr) {
 	}
 }
 
-func sysFaultOS(v unsafe.Pointer, n uintptr) {
+func sysFault(v unsafe.Pointer, n uintptr) {
 	// SysUnused makes the memory inaccessible and prevents its reuse
-	sysUnusedOS(v, n)
+	sysUnused(v, n)
 }
 
-func sysReserveOS(v unsafe.Pointer, n uintptr) unsafe.Pointer {
+func sysReserve(v unsafe.Pointer, n uintptr) unsafe.Pointer {
 	// v is just a hint.
 	// First try at v.
 	// This will fail if any of [v, v+n) is already reserved.
@@ -124,5 +124,6 @@ func sysReserveOS(v unsafe.Pointer, n uintptr) unsafe.Pointer {
 	return unsafe.Pointer(stdcall4(_VirtualAlloc, 0, n, _MEM_RESERVE, _PAGE_READWRITE))
 }
 
-func sysMapOS(v unsafe.Pointer, n uintptr) {
+func sysMap(v unsafe.Pointer, n uintptr, sysStat *sysMemStat) {
+	sysStat.add(int64(n))
 }

@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"go/build"
-	"internal/testenv"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,7 +22,6 @@ func TestMain(m *testing.M) {
 	for _, c := range contexts {
 		c.Compiler = build.Default.Compiler
 	}
-	build.Default.GOROOT = testenv.GOROOT(nil)
 
 	// Warm up the import cache in parallel.
 	var wg sync.WaitGroup

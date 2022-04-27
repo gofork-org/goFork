@@ -1146,8 +1146,7 @@ func gensymlate(ctxt *ld.Link, ldr *loader.Loader) {
 		if !ldr.AttrReachable(s) {
 			continue
 		}
-		t := ldr.SymType(s)
-		if t == sym.STEXT {
+		if ldr.SymType(s) == sym.STEXT {
 			if ctxt.IsDarwin() || ctxt.IsWindows() {
 				// Cannot relocate into middle of function.
 				// Generate symbol names for every offset we need in duffcopy/duffzero (only 64 each).
@@ -1159,9 +1158,6 @@ func gensymlate(ctxt *ld.Link, ldr *loader.Loader) {
 				}
 			}
 			continue // we don't target the middle of other functions
-		}
-		if t >= sym.SDWARFSECT {
-			continue // no need to add label for DWARF symbols
 		}
 		sz := ldr.SymSize(s)
 		if sz <= limit {

@@ -4,13 +4,9 @@
 
 // Pprof interprets and displays profiles of Go programs.
 //
-// Basic usage:
+// Usage:
 //
 //	go tool pprof binary profile
 //
-// For detailed usage information:
-//
-//  go tool pprof -h
-//
-// For an example, see https://blog.golang.org/profiling-go-programs.
+// For more information, see https://blog.golang.org/profiling-go-programs.
 package main

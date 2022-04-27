@@ -82,7 +82,6 @@ func lockWithRank(l *mutex, rank lockRank) {
 }
 
 // nosplit to ensure it can be called in as many contexts as possible.
-//
 //go:nosplit
 func printHeldLocks(gp *g) {
 	if gp.m.locksHeldLen == 0 {
@@ -98,7 +97,6 @@ func printHeldLocks(gp *g) {
 // acquireLockRank acquires a rank which is not associated with a mutex lock
 //
 // This function may be called in nosplit context and thus must be nosplit.
-//
 //go:nosplit
 func acquireLockRank(rank lockRank) {
 	gp := getg()
@@ -183,7 +181,6 @@ func unlockWithRank(l *mutex) {
 // releaseLockRank releases a rank which is not associated with a mutex lock
 //
 // This function may be called in nosplit context and thus must be nosplit.
-//
 //go:nosplit
 func releaseLockRank(rank lockRank) {
 	gp := getg()
@@ -229,7 +226,6 @@ func lockWithRankMayAcquire(l *mutex, rank lockRank) {
 }
 
 // nosplit to ensure it can be called in as many contexts as possible.
-//
 //go:nosplit
 func checkLockHeld(gp *g, l *mutex) bool {
 	for i := gp.m.locksHeldLen - 1; i >= 0; i-- {
@@ -243,7 +239,6 @@ func checkLockHeld(gp *g, l *mutex) bool {
 // assertLockHeld throws if l is not held by the caller.
 //
 // nosplit to ensure it can be called in as many contexts as possible.
-//
 //go:nosplit
 func assertLockHeld(l *mutex) {
 	gp := getg()
@@ -269,7 +264,6 @@ func assertLockHeld(l *mutex) {
 // pointer to the exact mutex is not available.
 //
 // nosplit to ensure it can be called in as many contexts as possible.
-//
 //go:nosplit
 func assertRankHeld(r lockRank) {
 	gp := getg()
@@ -295,7 +289,6 @@ func assertRankHeld(r lockRank) {
 // Caller must hold worldsema.
 //
 // nosplit to ensure it can be called in as many contexts as possible.
-//
 //go:nosplit
 func worldStopped() {
 	if stopped := atomic.Xadd(&worldIsStopped, 1); stopped != 1 {
@@ -311,7 +304,6 @@ func worldStopped() {
 // Caller must hold worldsema.
 //
 // nosplit to ensure it can be called in as many contexts as possible.
-//
 //go:nosplit
 func worldStarted() {
 	if stopped := atomic.Xadd(&worldIsStopped, -1); stopped != 0 {
@@ -323,7 +315,6 @@ func worldStarted() {
 }
 
 // nosplit to ensure it can be called in as many contexts as possible.
-//
 //go:nosplit
 func checkWorldStopped() bool {
 	stopped := atomic.Load(&worldIsStopped)
@@ -341,7 +332,6 @@ func checkWorldStopped() bool {
 // which M stopped the world.
 //
 // nosplit to ensure it can be called in as many contexts as possible.
-//
 //go:nosplit
 func assertWorldStopped() {
 	if checkWorldStopped() {
@@ -355,7 +345,6 @@ func assertWorldStopped() {
 // passed lock is not held.
 //
 // nosplit to ensure it can be called in as many contexts as possible.
-//
 //go:nosplit
 func assertWorldStoppedOrLockHeld(l *mutex) {
 	if checkWorldStopped() {

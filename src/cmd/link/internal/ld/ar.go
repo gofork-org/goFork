@@ -38,8 +38,6 @@ import (
 	"internal/buildcfg"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 )
 
 const (
@@ -67,9 +65,6 @@ type ArHdr struct {
 // define them. This is used for the compiler support library
 // libgcc.a.
 func hostArchive(ctxt *Link, name string) {
-	if ctxt.Debugvlog > 1 {
-		ctxt.Logf("hostArchive(%s)\n", name)
-	}
 	f, err := bio.Open(name)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -127,12 +122,8 @@ func hostArchive(ctxt *Link, name string) {
 			pname := fmt.Sprintf("%s(%s)", name, arhdr.name)
 			l = atolwhex(arhdr.size)
 
-			pkname := filepath.Base(name)
-			if i := strings.LastIndex(pkname, ".a"); i >= 0 {
-				pkname = pkname[:i]
-			}
-			libar := sym.Library{Pkg: pkname}
-			h := ldobj(ctxt, f, &libar, l, pname, name)
+			libgcc := sym.Library{Pkg: "libgcc"}
+			h := ldobj(ctxt, f, &libgcc, l, pname, name)
 			if h.ld == nil {
 				Errorf(nil, "%s unrecognized object file at offset %d", name, off)
 				continue

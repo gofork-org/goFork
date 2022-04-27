@@ -14,11 +14,10 @@ import (
 // tflag is documented in reflect/type.go.
 //
 // tflag values must be kept in sync with copies in:
-//
 //	cmd/compile/internal/reflectdata/reflect.go
 //	cmd/link/internal/ld/decodesym.go
 //	reflect/type.go
-//	internal/reflectlite/type.go
+//      internal/reflectlite/type.go
 type tflag uint8
 
 const (
@@ -127,14 +126,7 @@ func (t *_type) name() string {
 	}
 	s := t.string()
 	i := len(s) - 1
-	sqBrackets := 0
-	for i >= 0 && (s[i] != '.' || sqBrackets != 0) {
-		switch s[i] {
-		case ']':
-			sqBrackets++
-		case '[':
-			sqBrackets--
-		}
+	for i >= 0 && s[i] != '.' {
 		i--
 	}
 	return s[i+1:]

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build unix || (js && wasm)
+//go:build aix || darwin || dragonfly || freebsd || (js && wasm) || linux || netbsd || openbsd || solaris
 
 package mime
 
@@ -40,11 +40,11 @@ func loadMimeGlobsFile(filename string) error {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		// Each line should be of format: weight:mimetype:*.ext[:morefields...]
+		// Each line should be of format: weight:mimetype:*.ext
 		fields := strings.Split(scanner.Text(), ":")
-		if len(fields) < 3 || len(fields[0]) < 1 || len(fields[2]) < 3 {
+		if len(fields) < 3 || len(fields[0]) < 1 || len(fields[2]) < 2 {
 			continue
-		} else if fields[0][0] == '#' || fields[2][0] != '*' || fields[2][1] != '.' {
+		} else if fields[0][0] == '#' || fields[2][0] != '*' {
 			continue
 		}
 

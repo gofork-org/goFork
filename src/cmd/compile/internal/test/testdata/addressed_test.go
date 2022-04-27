@@ -145,7 +145,6 @@ func (v V) val() int64 {
 // and y.val() should be equal to which and y.p.val() should
 // be equal to z.val().  Also, x(.p)**8 == x; that is, the
 // autos are all linked into a ring.
-//
 //go:noinline
 func (v V) autos_ssa(which, w1, x1, w2, x2 int64) (y, z V) {
 	fill_ssa(v.w, v.x, &v, v.p) // gratuitous no-op to force addressing
@@ -192,7 +191,6 @@ func (v V) autos_ssa(which, w1, x1, w2, x2 int64) (y, z V) {
 
 // gets is an address-mentioning way of implementing
 // structure assignment.
-//
 //go:noinline
 func (to *V) gets(from *V) {
 	*to = *from
@@ -200,14 +198,12 @@ func (to *V) gets(from *V) {
 
 // gets is an address-and-interface-mentioning way of
 // implementing structure assignment.
-//
 //go:noinline
 func (to *V) getsI(from interface{}) {
 	*to = *from.(*V)
 }
 
 // fill_ssa initializes r with V{w:w, x:x, p:p}
-//
 //go:noinline
 func fill_ssa(w, x int64, r, p *V) {
 	*r = V{w: w, x: x, p: p}

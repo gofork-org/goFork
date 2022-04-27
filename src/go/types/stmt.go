@@ -19,7 +19,10 @@ func (check *Checker) funcBody(decl *declInfo, name string, sig *Signature, body
 	}
 
 	if trace {
-		check.trace(body.Pos(), "-- %s: %s", name, sig)
+		check.trace(body.Pos(), "--- %s: %s", name, sig)
+		defer func() {
+			check.trace(body.End(), "--- <end>")
+		}()
 	}
 
 	// set function scope extent
@@ -93,7 +96,6 @@ const (
 
 	// additional context information
 	finalSwitchCase
-	inTypeSwitch
 )
 
 func (check *Checker) simpleStmt(s ast.Stmt) {
@@ -317,7 +319,7 @@ L:
 }
 
 // TODO(gri) Once we are certain that typeHash is correct in all situations, use this version of caseTypes instead.
-// (Currently it may be possible that different types have identical names and import paths due to ImporterFrom.)
+//           (Currently it may be possible that different types have identical names and import paths due to ImporterFrom.)
 //
 // func (check *Checker) caseTypes(x *operand, xtyp *Interface, types []ast.Expr, seen map[string]ast.Expr) (T Type) {
 // 	var dummy operand
@@ -373,9 +375,7 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 	// process collected function literals before scope changes
 	defer check.processDelayed(len(check.delayed))
 
-	// reset context for statements of inner blocks
-	inner := ctxt &^ (fallthroughOk | finalSwitchCase | inTypeSwitch)
-
+	inner := ctxt &^ (fallthroughOk | finalSwitchCase)
 	switch s := s.(type) {
 	case *ast.BadStmt, *ast.EmptyStmt:
 		// ignore
@@ -541,16 +541,12 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 			}
 		case token.FALLTHROUGH:
 			if ctxt&fallthroughOk == 0 {
-				var msg string
-				switch {
-				case ctxt&finalSwitchCase != 0:
+				msg := "fallthrough statement out of place"
+				code := _MisplacedFallthrough
+				if ctxt&finalSwitchCase != 0 {
 					msg = "cannot fallthrough final case in switch"
-				case ctxt&inTypeSwitch != 0:
-					msg = "cannot fallthrough in type switch"
-				default:
-					msg = "fallthrough statement out of place"
 				}
-				check.error(s, _MisplacedFallthrough, msg)
+				check.error(s, code, msg)
 			}
 		default:
 			check.invalidAST(s, "branch statement: %s", s.Tok)
@@ -631,7 +627,7 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		}
 
 	case *ast.TypeSwitchStmt:
-		inner |= breakOk | inTypeSwitch
+		inner |= breakOk
 		check.openScope(s, "type switch")
 		defer check.closeScope()
 

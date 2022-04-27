@@ -12,6 +12,5 @@ import (
 )
 
 // Implemented in syscall/syscall_darwin.go.
-//
 //go:linkname writev syscall.writev
 func writev(fd int, iovecs []syscall.Iovec) (uintptr, error)

@@ -26,12 +26,12 @@ import (
 // syntactically different and simpler than SQL.  The syntax is as
 // follows:
 //
-//	WIPE
-//	CREATE|<tablename>|<col>=<type>,<col>=<type>,...
-//	  where types are: "string", [u]int{8,16,32,64}, "bool"
-//	INSERT|<tablename>|col=val,col2=val2,col3=?
-//	SELECT|<tablename>|projectcol1,projectcol2|filtercol=?,filtercol2=?
-//	SELECT|<tablename>|projectcol1,projectcol2|filtercol=?param1,filtercol2=?param2
+//   WIPE
+//   CREATE|<tablename>|<col>=<type>,<col>=<type>,...
+//     where types are: "string", [u]int{8,16,32,64}, "bool"
+//   INSERT|<tablename>|col=val,col2=val2,col3=?
+//   SELECT|<tablename>|projectcol1,projectcol2|filtercol=?,filtercol2=?
+//   SELECT|<tablename>|projectcol1,projectcol2|filtercol=?param1,filtercol2=?param2
 //
 // Any of these can be preceded by PANIC|<method>|, to cause the
 // named method on fakeStmt to panic.
@@ -250,11 +250,10 @@ func setHookOpenErr(fn func() error) {
 }
 
 // Supports dsn forms:
-//
-//	<dbname>
-//	<dbname>;<opts>  (only currently supported option is `badConn`,
-//	                  which causes driver.ErrBadConn to be returned on
-//	                  every other conn.Begin())
+//    <dbname>
+//    <dbname>;<opts>  (only currently supported option is `badConn`,
+//                      which causes driver.ErrBadConn to be returned on
+//                      every other conn.Begin())
 func (d *fakeDriver) Open(dsn string) (driver.Conn, error) {
 	hookOpenErr.Lock()
 	fn := hookOpenErr.fn
@@ -511,7 +510,7 @@ func errf(msg string, args ...any) error {
 
 // parts are table|selectCol1,selectCol2|whereCol=?,whereCol2=?
 // (note that where columns must always contain ? marks,
-// just a limitation for fakedb)
+//  just a limitation for fakedb)
 func (c *fakeConn) prepareSelect(stmt *fakeStmt, parts []string) (*fakeStmt, error) {
 	if len(parts) != 3 {
 		stmt.Close()
@@ -1175,6 +1174,7 @@ func (rc *rowsCursor) NextResultSet() error {
 // This could be surprising behavior to retroactively apply to
 // driver.String now that Go1 is out, but this is convenient for
 // our TestPointerParamsAndScans.
+//
 type fakeDriverString struct{}
 
 func (fakeDriverString) ConvertValue(v any) (driver.Value, error) {

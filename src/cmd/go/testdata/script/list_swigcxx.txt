@@ -6,7 +6,7 @@
 
 # CompiledGoFiles should contain 4 files:
 #  a.go
-#  _cgo_import.go [gc only]
+#  a.swigcxx.go
 #  _cgo_gotypes.go
 #  a.cgo1.go
 #
@@ -16,8 +16,7 @@
 go list -f '{{.CompiledGoFiles}}' -compiled=true example/swig
 
 stdout a\.go
-[gc] stdout -count=3 $GOCACHE
-[gccgo] stdout -count=2 $GOCACHE
+stdout -count=3 $GOCACHE
 
 -- go.mod --
 module example

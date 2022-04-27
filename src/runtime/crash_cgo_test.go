@@ -234,7 +234,6 @@ func TestCgoCrashTraceback(t *testing.T) {
 	switch platform := runtime.GOOS + "/" + runtime.GOARCH; platform {
 	case "darwin/amd64":
 	case "linux/amd64":
-	case "linux/arm64":
 	case "linux/ppc64le":
 	default:
 		t.Skipf("not yet supported on %s", platform)
@@ -252,7 +251,6 @@ func TestCgoCrashTracebackGo(t *testing.T) {
 	switch platform := runtime.GOOS + "/" + runtime.GOARCH; platform {
 	case "darwin/amd64":
 	case "linux/amd64":
-	case "linux/arm64":
 	case "linux/ppc64le":
 	default:
 		t.Skipf("not yet supported on %s", platform)
@@ -286,7 +284,7 @@ func TestCgoTracebackContextPreemption(t *testing.T) {
 
 func testCgoPprof(t *testing.T, buildArg, runArg, top, bottom string) {
 	t.Parallel()
-	if runtime.GOOS != "linux" || (runtime.GOARCH != "amd64" && runtime.GOARCH != "ppc64le" && runtime.GOARCH != "arm64") {
+	if runtime.GOOS != "linux" || (runtime.GOARCH != "amd64" && runtime.GOARCH != "ppc64le") {
 		t.Skipf("not yet supported on %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 	testenv.MustHaveGoRun(t)
@@ -629,7 +627,7 @@ func TestSegv(t *testing.T) {
 					testenv.SkipFlaky(t, 50504)
 				}
 			}
-			if test == "SegvInCgo" && strings.Contains(got, "unknown pc") {
+			if test == "SegvInCgo" && strings.Contains(got, "runtime: unknown pc") {
 				testenv.SkipFlaky(t, 50979)
 			}
 

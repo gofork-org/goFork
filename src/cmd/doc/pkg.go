@@ -25,7 +25,8 @@ import (
 )
 
 const (
-	punchedCardWidth = 80
+	punchedCardWidth = 80 // These things just won't leave us alone.
+	indentedWidth    = punchedCardWidth - len(indent)
 	indent           = "    "
 )
 
@@ -41,14 +42,6 @@ type Package struct {
 	constructor map[*doc.Func]bool  // Constructors.
 	fs          *token.FileSet      // Needed for printing.
 	buf         pkgBuffer
-}
-
-func (p *Package) ToText(w io.Writer, text, prefix, codePrefix string) {
-	d := p.doc.Parser().Parse(text)
-	pr := p.doc.Printer()
-	pr.TextPrefix = prefix
-	pr.TextCodePrefix = codePrefix
-	w.Write(pr.Text(d))
 }
 
 // pkgBuffer is a wrapper for bytes.Buffer that prints a package clause the
@@ -96,11 +89,9 @@ func (pkg *Package) prettyPath() string {
 	// Also convert everything to slash-separated paths for uniform handling.
 	path = filepath.Clean(filepath.ToSlash(pkg.build.Dir))
 	// Can we find a decent prefix?
-	if buildCtx.GOROOT != "" {
-		goroot := filepath.Join(buildCtx.GOROOT, "src")
-		if p, ok := trim(path, filepath.ToSlash(goroot)); ok {
-			return p
-		}
+	goroot := filepath.Join(buildCtx.GOROOT, "src")
+	if p, ok := trim(path, filepath.ToSlash(goroot)); ok {
+		return p
 	}
 	for _, gopath := range splitGopath() {
 		if p, ok := trim(path, filepath.ToSlash(gopath)); ok {
@@ -258,7 +249,7 @@ func (pkg *Package) emit(comment string, node ast.Node) {
 		}
 		if comment != "" && !showSrc {
 			pkg.newlines(1)
-			pkg.ToText(&pkg.buf, comment, indent, indent+indent)
+			doc.ToText(&pkg.buf, comment, indent, indent+indent, indentedWidth)
 			pkg.newlines(2) // Blank line after comment to separate from next item.
 		} else {
 			pkg.newlines(1)
@@ -470,7 +461,7 @@ func joinStrings(ss []string) string {
 // allDoc prints all the docs for the package.
 func (pkg *Package) allDoc() {
 	pkg.Printf("") // Trigger the package clause; we know the package exists.
-	pkg.ToText(&pkg.buf, pkg.doc.Doc, "", indent)
+	doc.ToText(&pkg.buf, pkg.doc.Doc, "", indent, indentedWidth)
 	pkg.newlines(1)
 
 	printed := make(map[*ast.GenDecl]bool)
@@ -530,7 +521,7 @@ func (pkg *Package) allDoc() {
 func (pkg *Package) packageDoc() {
 	pkg.Printf("") // Trigger the package clause; we know the package exists.
 	if !short {
-		pkg.ToText(&pkg.buf, pkg.doc.Doc, "", indent)
+		doc.ToText(&pkg.buf, pkg.doc.Doc, "", indent, indentedWidth)
 		pkg.newlines(1)
 	}
 
@@ -1040,9 +1031,9 @@ func (pkg *Package) printFieldDoc(symbol, fieldName string) bool {
 				if field.Doc != nil {
 					// To present indented blocks in comments correctly, process the comment as
 					// a unit before adding the leading // to each line.
-					docBuf := new(bytes.Buffer)
-					pkg.ToText(docBuf, field.Doc.Text(), "", indent)
-					scanner := bufio.NewScanner(docBuf)
+					docBuf := bytes.Buffer{}
+					doc.ToText(&docBuf, field.Doc.Text(), "", indent, indentedWidth)
+					scanner := bufio.NewScanner(&docBuf)
 					for scanner.Scan() {
 						fmt.Fprintf(&pkg.buf, "%s// %s\n", indent, scanner.Bytes())
 					}

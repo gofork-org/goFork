@@ -4,8 +4,6 @@
 
 package sort
 
-import "math/bits"
-
 // Slice sorts the slice x given the provided less function.
 // It panics if x is not a slice.
 //
@@ -19,8 +17,7 @@ func Slice(x any, less func(i, j int) bool) {
 	rv := reflectValueOf(x)
 	swap := reflectSwapper(x)
 	length := rv.Len()
-	limit := bits.Len(uint(length))
-	pdqsort_func(lessSwap{less, swap}, 0, length, limit)
+	quickSort_func(lessSwap{less, swap}, 0, length, maxDepth(length))
 }
 
 // SliceStable sorts the slice x using the provided less

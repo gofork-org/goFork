@@ -6,7 +6,7 @@ package runtime_test
 
 import (
 	"bytes"
-	"internal/abi"
+	"internal/goexperiment"
 	"internal/testenv"
 	"runtime"
 	"strings"
@@ -23,7 +23,7 @@ func TestTracebackArgs(t *testing.T) {
 	abiSel := func(x, y string) string {
 		// select expected output based on ABI
 		// In noopt build we always spill arguments so the output is the same as stack ABI.
-		if optimized && abi.IntArgRegs > 0 {
+		if optimized && goexperiment.RegabiArgs {
 			return x
 		}
 		return y

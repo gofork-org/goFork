@@ -471,11 +471,6 @@ func (d *dwctxt) dotypedef(parent *dwarf.DWDie, name string, def *dwarf.DWDie) *
 	if strings.HasPrefix(name, "struct {") {
 		return nil
 	}
-	// cmd/compile uses "noalg.struct {...}" as type name when hash and eq algorithm generation of
-	// this struct type is suppressed.
-	if strings.HasPrefix(name, "noalg.struct {") {
-		return nil
-	}
 	if strings.HasPrefix(name, "chan ") {
 		return nil
 	}
@@ -1360,7 +1355,7 @@ func (d *dwctxt) writeframes(fs loader.Sym) dwarfSecInfo {
 	fsu := d.ldr.MakeSymbolUpdater(fs)
 	fsu.SetType(sym.SDWARFSECT)
 	isdw64 := isDwarf64(d.linkctxt)
-	haslr := d.linkctxt.Arch.HasLR
+	haslr := haslinkregister(d.linkctxt)
 
 	// Length field is 4 bytes on Dwarf32 and 12 bytes on Dwarf64
 	lengthFieldSize := int64(4)
@@ -2227,18 +2222,11 @@ func dwarfcompress(ctxt *Link) {
 			newDwarfp = append(newDwarfp, ds)
 			Segdwarf.Sections = append(Segdwarf.Sections, ldr.SymSect(s))
 		} else {
-			var compressedSegName string
-			if ctxt.IsELF {
-				compressedSegName = ldr.SymSect(s).Name
-			} else {
-				compressedSegName = ".zdebug_" + ldr.SymSect(s).Name[len(".debug_"):]
-			}
+			compressedSegName := ".zdebug_" + ldr.SymSect(s).Name[len(".debug_"):]
 			sect := addsection(ctxt.loader, ctxt.Arch, &Segdwarf, compressedSegName, 04)
-			sect.Align = int32(ctxt.Arch.Alignment)
+			sect.Align = 1
 			sect.Length = uint64(len(z.compressed))
-			sect.Compressed = true
-			newSym := ldr.MakeSymbolBuilder(compressedSegName)
-			ldr.SetAttrReachable(s, true)
+			newSym := ldr.CreateSymForUpdate(compressedSegName, 0)
 			newSym.SetData(z.compressed)
 			newSym.SetSize(int64(len(z.compressed)))
 			ldr.SetSymSect(newSym.Sym(), sect)

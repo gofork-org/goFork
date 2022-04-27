@@ -53,7 +53,6 @@ func progedit(ctxt *obj.Link, p *obj.Prog, newprog obj.ProgAlloc) {
 	if p.Reg == obj.REG_NONE {
 		switch p.As {
 		case AADDI, ASLTI, ASLTIU, AANDI, AORI, AXORI, ASLLI, ASRLI, ASRAI,
-			AADDIW, ASLLIW, ASRLIW, ASRAIW, AADDW, ASUBW, ASLLW, ASRLW, ASRAW,
 			AADD, AAND, AOR, AXOR, ASLL, ASRL, ASUB, ASRA,
 			AMUL, AMULH, AMULHU, AMULHSU, AMULW, ADIV, ADIVU, ADIVW, ADIVUW,
 			AREM, AREMU, AREMW, AREMUW:
@@ -83,14 +82,6 @@ func progedit(ctxt *obj.Link, p *obj.Prog, newprog obj.ProgAlloc) {
 			p.As = ASRLI
 		case ASRA:
 			p.As = ASRAI
-		case AADDW:
-			p.As = AADDIW
-		case ASLLW:
-			p.As = ASLLIW
-		case ASRLW:
-			p.As = ASRLIW
-		case ASRAW:
-			p.As = ASRAIW
 		}
 	}
 
@@ -323,7 +314,10 @@ func setPCs(p *obj.Prog, pc int64) int64 {
 // FixedFrameSize makes other packages aware of the space allocated for RA.
 //
 // A nicer version of this diagram can be found on slide 21 of the presentation
-// attached to https://golang.org/issue/16922#issuecomment-243748180.
+// attached to:
+//
+//   https://golang.org/issue/16922#issuecomment-243748180
+//
 func stackOffset(a *obj.Addr, stacksize int64) {
 	switch a.Name {
 	case obj.NAME_AUTO:
@@ -380,7 +374,7 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 
 	// Save LR unless there is no frame.
 	if !text.From.Sym.NoFrame() {
-		stacksize += ctxt.Arch.FixedFrameSize
+		stacksize += ctxt.FixedFrameSize()
 	}
 
 	cursym.Func().Args = text.To.Val.(int32)
@@ -415,17 +409,17 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 	if cursym.Func().Text.From.Sym.Wrapper() {
 		// if(g->panic != nil && g->panic->argp == FP) g->panic->argp = bottom-of-frame
 		//
-		//   MOV g_panic(g), X5
-		//   BNE X5, ZERO, adjust
+		//   MOV g_panic(g), X11
+		//   BNE X11, ZERO, adjust
 		// end:
 		//   NOP
 		// ...rest of function..
 		// adjust:
-		//   MOV panic_argp(X5), X6
-		//   ADD $(autosize+FIXED_FRAME), SP, X7
-		//   BNE X6, X7, end
-		//   ADD $FIXED_FRAME, SP, X6
-		//   MOV X6, panic_argp(X5)
+		//   MOV panic_argp(X11), X12
+		//   ADD $(autosize+FIXED_FRAME), SP, X13
+		//   BNE X12, X13, end
+		//   ADD $FIXED_FRAME, SP, X12
+		//   MOV X12, panic_argp(X11)
 		//   JMP end
 		//
 		// The NOP is needed to give the jumps somewhere to land.
@@ -435,11 +429,11 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 		ldpanic.As = AMOV
 		ldpanic.From = obj.Addr{Type: obj.TYPE_MEM, Reg: REGG, Offset: 4 * int64(ctxt.Arch.PtrSize)} // G.panic
 		ldpanic.Reg = obj.REG_NONE
-		ldpanic.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X5}
+		ldpanic.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X11}
 
 		bneadj := obj.Appendp(ldpanic, newprog)
 		bneadj.As = ABNE
-		bneadj.From = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X5}
+		bneadj.From = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X11}
 		bneadj.Reg = REG_ZERO
 		bneadj.To.Type = obj.TYPE_BRANCH
 
@@ -453,22 +447,22 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 
 		getargp := obj.Appendp(last, newprog)
 		getargp.As = AMOV
-		getargp.From = obj.Addr{Type: obj.TYPE_MEM, Reg: REG_X5, Offset: 0} // Panic.argp
+		getargp.From = obj.Addr{Type: obj.TYPE_MEM, Reg: REG_X11, Offset: 0} // Panic.argp
 		getargp.Reg = obj.REG_NONE
-		getargp.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X6}
+		getargp.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X12}
 
 		bneadj.To.SetTarget(getargp)
 
 		calcargp := obj.Appendp(getargp, newprog)
 		calcargp.As = AADDI
-		calcargp.From = obj.Addr{Type: obj.TYPE_CONST, Offset: stacksize + ctxt.Arch.FixedFrameSize}
+		calcargp.From = obj.Addr{Type: obj.TYPE_CONST, Offset: stacksize + ctxt.FixedFrameSize()}
 		calcargp.Reg = REG_SP
-		calcargp.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X7}
+		calcargp.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X13}
 
 		testargp := obj.Appendp(calcargp, newprog)
 		testargp.As = ABNE
-		testargp.From = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X6}
-		testargp.Reg = REG_X7
+		testargp.From = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X12}
+		testargp.Reg = REG_X13
 		testargp.To.Type = obj.TYPE_BRANCH
 		testargp.To.SetTarget(endadj)
 
@@ -476,13 +470,13 @@ func preprocess(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 		adjargp.As = AADDI
 		adjargp.From = obj.Addr{Type: obj.TYPE_CONST, Offset: int64(ctxt.Arch.PtrSize)}
 		adjargp.Reg = REG_SP
-		adjargp.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X6}
+		adjargp.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X12}
 
 		setargp := obj.Appendp(adjargp, newprog)
 		setargp.As = AMOV
-		setargp.From = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X6}
+		setargp.From = obj.Addr{Type: obj.TYPE_REG, Reg: REG_X12}
 		setargp.Reg = obj.REG_NONE
-		setargp.To = obj.Addr{Type: obj.TYPE_MEM, Reg: REG_X5, Offset: 0} // Panic.argp
+		setargp.To = obj.Addr{Type: obj.TYPE_MEM, Reg: REG_X11, Offset: 0} // Panic.argp
 
 		godone := obj.Appendp(setargp, newprog)
 		godone.As = AJAL
@@ -732,11 +726,6 @@ func stacksplit(ctxt *obj.Link, p *obj.Prog, cursym *obj.LSym, newprog obj.ProgA
 		// Save LR and REGCTXT
 		const frameSize = 16
 		p = ctxt.StartUnsafePoint(p, newprog)
-
-		// Spill Arguments. This has to happen before we open
-		// any more frame space.
-		p = cursym.Func().SpillRegisterArgs(p, newprog)
-
 		// MOV LR, -16(SP)
 		p = obj.Appendp(p, newprog)
 		p.As = AMOV
@@ -783,15 +772,13 @@ func stacksplit(ctxt *obj.Link, p *obj.Prog, cursym *obj.LSym, newprog obj.ProgA
 		p.To = obj.Addr{Type: obj.TYPE_REG, Reg: REG_SP}
 		p.Spadj = -frameSize
 
-		// Unspill arguments
-		p = cursym.Func().UnspillRegisterArgs(p, newprog)
 		p = ctxt.EndUnsafePoint(p, newprog, -1)
 	}
 
 	// Jump back to here after morestack returns.
 	startPred := p
 
-	// MOV	g_stackguard(g), X6
+	// MOV	g_stackguard(g), X10
 	p = obj.Appendp(p, newprog)
 	p.As = AMOV
 	p.From.Type = obj.TYPE_MEM
@@ -801,7 +788,7 @@ func stacksplit(ctxt *obj.Link, p *obj.Prog, cursym *obj.LSym, newprog obj.ProgA
 		p.From.Offset = 3 * int64(ctxt.Arch.PtrSize) // G.stackguard1
 	}
 	p.To.Type = obj.TYPE_REG
-	p.To.Reg = REG_X6
+	p.To.Reg = REG_X10
 
 	// Mark the stack bound check and morestack call async nonpreemptible.
 	// If we get preempted here, when resumed the preemption request is
@@ -818,7 +805,7 @@ func stacksplit(ctxt *obj.Link, p *obj.Prog, cursym *obj.LSym, newprog obj.ProgA
 		p = obj.Appendp(p, newprog)
 		p.As = ABLTU
 		p.From.Type = obj.TYPE_REG
-		p.From.Reg = REG_X6
+		p.From.Reg = REG_X10
 		p.Reg = REG_SP
 		p.To.Type = obj.TYPE_BRANCH
 		to_done = p
@@ -833,56 +820,52 @@ func stacksplit(ctxt *obj.Link, p *obj.Prog, cursym *obj.LSym, newprog obj.ProgA
 			// stack guard to incorrectly succeed. We explicitly
 			// guard against underflow.
 			//
-			//	MOV	$(framesize-StackSmall), X7
-			//	BLTU	SP, X7, label-of-call-to-morestack
+			//	MOV	$(framesize-StackSmall), X11
+			//	BLTU	SP, X11, label-of-call-to-morestack
 
 			p = obj.Appendp(p, newprog)
 			p.As = AMOV
 			p.From.Type = obj.TYPE_CONST
 			p.From.Offset = offset
 			p.To.Type = obj.TYPE_REG
-			p.To.Reg = REG_X7
+			p.To.Reg = REG_X11
 
 			p = obj.Appendp(p, newprog)
 			p.As = ABLTU
 			p.From.Type = obj.TYPE_REG
 			p.From.Reg = REG_SP
-			p.Reg = REG_X7
+			p.Reg = REG_X11
 			p.To.Type = obj.TYPE_BRANCH
 			to_more = p
 		}
 
 		// Check against the stack guard. We've ensured this won't underflow.
-		//	ADD	$-(framesize-StackSmall), SP, X7
-		//	// if X7 > stackguard { goto done }
-		//	BLTU	stackguard, X7, done
+		//	ADD	$-(framesize-StackSmall), SP, X11
+		//	// if X11 > stackguard { goto done }
+		//	BLTU	stackguard, X11, done
 		p = obj.Appendp(p, newprog)
 		p.As = AADDI
 		p.From.Type = obj.TYPE_CONST
 		p.From.Offset = -offset
 		p.Reg = REG_SP
 		p.To.Type = obj.TYPE_REG
-		p.To.Reg = REG_X7
+		p.To.Reg = REG_X11
 
 		p = obj.Appendp(p, newprog)
 		p.As = ABLTU
 		p.From.Type = obj.TYPE_REG
-		p.From.Reg = REG_X6
-		p.Reg = REG_X7
+		p.From.Reg = REG_X10
+		p.Reg = REG_X11
 		p.To.Type = obj.TYPE_BRANCH
 		to_done = p
 	}
 
-	// Spill the register args that could be clobbered by the
-	// morestack code
 	p = ctxt.EmitEntryStackMap(cursym, p, newprog)
-	p = cursym.Func().SpillRegisterArgs(p, newprog)
 
 	// CALL runtime.morestack(SB)
 	p = obj.Appendp(p, newprog)
 	p.As = obj.ACALL
 	p.To.Type = obj.TYPE_BRANCH
-
 	if cursym.CFunc() {
 		p.To.Sym = ctxt.Lookup("runtime.morestackc")
 	} else if !cursym.Func().Text.From.Sym.NeedCtxt() {
@@ -895,7 +878,6 @@ func stacksplit(ctxt *obj.Link, p *obj.Prog, cursym *obj.LSym, newprog obj.ProgA
 	}
 	jalToSym(ctxt, p, REG_X5)
 
-	p = cursym.Func().UnspillRegisterArgs(p, newprog)
 	p = ctxt.EndUnsafePoint(p, newprog, -1)
 
 	// JMP start
@@ -1814,11 +1796,6 @@ func instructionsForStore(p *obj.Prog, as obj.As, rd int16) []*instruction {
 func instructionsForMOV(p *obj.Prog) []*instruction {
 	ins := instructionForProg(p)
 	inss := []*instruction{ins}
-
-	if p.Reg != 0 {
-		p.Ctxt.Diag("%v: illegal MOV instruction", p)
-		return nil
-	}
 
 	switch {
 	case p.From.Type == obj.TYPE_CONST && p.To.Type == obj.TYPE_REG:

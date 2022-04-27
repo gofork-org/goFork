@@ -17,7 +17,6 @@ var failThreadCreate = []byte("runtime: failed to create new OS thread\n")
 func mstart_stub()
 
 // May run with m.p==nil, so write barriers are not allowed.
-//
 //go:nowritebarrierrec
 func newosproc(mp *m) {
 	if false {

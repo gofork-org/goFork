@@ -67,10 +67,7 @@ func (z *Int) UnmarshalText(text []byte) error {
 
 // MarshalJSON implements the json.Marshaler interface.
 func (x *Int) MarshalJSON() ([]byte, error) {
-	if x == nil {
-		return []byte("null"), nil
-	}
-	return x.abs.itoa(x.neg, 10), nil
+	return x.MarshalText()
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.

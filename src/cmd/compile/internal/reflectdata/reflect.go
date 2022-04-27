@@ -14,7 +14,6 @@ import (
 
 	"cmd/compile/internal/base"
 	"cmd/compile/internal/bitvec"
-	"cmd/compile/internal/compare"
 	"cmd/compile/internal/escape"
 	"cmd/compile/internal/inline"
 	"cmd/compile/internal/ir"
@@ -668,10 +667,10 @@ var kinds = []int{
 // tflag is documented in reflect/type.go.
 //
 // tflag values must be kept in sync with copies in:
-//   - cmd/compile/internal/reflectdata/reflect.go
-//   - cmd/link/internal/ld/decodesym.go
-//   - reflect/type.go
-//   - runtime/type.go
+//	cmd/compile/internal/reflectdata/reflect.go
+//	cmd/link/internal/ld/decodesym.go
+//	reflect/type.go
+//	runtime/type.go
 const (
 	tflagUncommon      = 1 << 0
 	tflagExtraStar     = 1 << 1
@@ -729,7 +728,7 @@ func dcommontype(lsym *obj.LSym, t *types.Type) int {
 	if t.Sym() != nil && t.Sym().Name != "" {
 		tflag |= tflagNamed
 	}
-	if compare.IsRegularMemory(t) {
+	if isRegularMemory(t) {
 		tflag |= tflagRegularMemory
 	}
 
@@ -1197,17 +1196,10 @@ func writeType(t *types.Type) *obj.LSym {
 		}
 	}
 
-	// Note: DUPOK is required to ensure that we don't end up with more
-	// than one type descriptor for a given type, if the type descriptor
-	// can be defined in multiple packages, that is, unnamed types and
-	// instantiated types.
-	dupok := 0
-	if tbase.Sym() == nil || tbase.IsFullyInstantiated() {
-		dupok = obj.DUPOK
-	}
-
 	ot = dextratypeData(lsym, ot, t)
-	objw.Global(lsym, int32(ot), int16(dupok|obj.RODATA))
+	objw.Global(lsym, int32(ot), int16(obj.DUPOK|obj.RODATA))
+	// Note: DUPOK is required to ensure that we don't end up with more
+	// than one type descriptor for a given type.
 
 	// The linker will leave a table of all the typelinks for
 	// types in the binary, so the runtime can find them.
@@ -1329,21 +1321,21 @@ func writeITab(lsym *obj.LSym, typ, iface *types.Type, allowNonImplement bool) {
 	// type itab struct {
 	//   inter  *interfacetype
 	//   _type  *_type
-	//   hash   uint32 // copy of _type.hash. Used for type switches.
+	//   hash   uint32
 	//   _      [4]byte
-	//   fun    [1]uintptr // variable sized. fun[0]==0 means _type does not implement inter.
+	//   fun    [1]uintptr // variable sized
 	// }
 	o := objw.SymPtr(lsym, 0, writeType(iface), 0)
 	o = objw.SymPtr(lsym, o, writeType(typ), 0)
 	o = objw.Uint32(lsym, o, types.TypeHash(typ)) // copy of type hash
 	o += 4                                        // skip unused field
-	if !completeItab {
-		// If typ doesn't implement iface, make method entries be zero.
-		o = objw.Uintptr(lsym, o, 0)
-		entries = entries[:0]
-	}
 	for _, fn := range entries {
-		o = objw.SymPtrWeak(lsym, o, fn, 0) // method pointer for each method
+		if !completeItab {
+			// If typ doesn't implement iface, make method entries be zero.
+			o = objw.Uintptr(lsym, o, 0)
+		} else {
+			o = objw.SymPtrWeak(lsym, o, fn, 0) // method pointer for each method
+		}
 	}
 	// Nothing writes static itabs, so they are read only.
 	objw.Global(lsym, int32(o), int16(obj.DUPOK|obj.RODATA))
@@ -1405,7 +1397,9 @@ func WriteBasicTypes() {
 		}
 		writeType(types.NewPtr(types.Types[types.TSTRING]))
 		writeType(types.NewPtr(types.Types[types.TUNSAFEPTR]))
-		writeType(types.AnyType)
+		if base.Flag.G > 0 {
+			writeType(types.AnyType)
+		}
 
 		// emit type structs for error and func(error) string.
 		// The latter is the type of an auto-generated wrapper.
@@ -1501,6 +1495,7 @@ func (a typesByString) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 // use bitmaps for objects up to 64 kB in size.
 //
 // Also known to reflect/type.go.
+//
 const maxPtrmaskBytes = 2048
 
 // GCSym returns a data symbol containing GC information for type t, along
@@ -1795,17 +1790,13 @@ func NeedEmit(typ *types.Type) bool {
 // Also wraps methods on instantiated generic types for use in itab entries.
 // For an instantiated generic type G[int], we generate wrappers like:
 // G[int] pointer shaped:
-//
 //	func (x G[int]) f(arg) {
 //		.inst.G[int].f(dictionary, x, arg)
-//	}
-//
+// 	}
 // G[int] not pointer shaped:
-//
 //	func (x *G[int]) f(arg) {
 //		.inst.G[int].f(dictionary, *x, arg)
-//	}
-//
+// 	}
 // These wrappers are always fully stenciled.
 func methodWrapper(rcvr *types.Type, method *types.Field, forItab bool) *obj.LSym {
 	orig := rcvr
@@ -1830,16 +1821,15 @@ func methodWrapper(rcvr *types.Type, method *types.Field, forItab bool) *obj.LSy
 
 	newnam := ir.MethodSym(rcvr, method.Sym)
 	lsym := newnam.Linksym()
-
-	// Unified IR creates its own wrappers.
-	if base.Debug.Unified != 0 {
-		return lsym
-	}
-
 	if newnam.Siggen() {
 		return lsym
 	}
 	newnam.SetSiggen(true)
+
+	// Except in quirks mode, unified IR creates its own wrappers.
+	if base.Debug.Unified != 0 && base.Debug.UnifiedQuirks == 0 {
+		return lsym
+	}
 
 	methodrcvr := method.Type.Recv().Type
 	// For generic methods, we need to generate the wrapper even if the receiver

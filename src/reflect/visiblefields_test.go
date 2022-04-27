@@ -78,7 +78,7 @@ var fieldsTests = []struct {
 		index: []int{0, 1},
 	}},
 }, {
-	testName: "TwoEmbeddedStructsWithCancelingMembers",
+	testName: "TwoEmbeddedStructsWithCancellingMembers",
 	val: struct {
 		SFG
 		SF

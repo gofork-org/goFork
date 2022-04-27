@@ -17,6 +17,7 @@ import (
 // If an error occurred, x.mode is set to invalid.
 // For the meaning of def, see Checker.definedType, below.
 // If wantType is set, the identifier e is expected to denote a type.
+//
 func (check *Checker) ident(x *operand, e *syntax.Name, def *Named, wantType bool) {
 	x.mode = invalid
 	x.expr = e
@@ -173,13 +174,14 @@ func (check *Checker) validVarType(e syntax.Expr, typ Type) {
 				}
 			}
 		}
-	}).describef(e, "check var type %s", typ)
+	})
 }
 
 // definedType is like typ but also accepts a type name def.
 // If def != nil, e is the type specification for the defined type def, declared
 // in a type declaration, and def.underlying will be set to the type of e before
 // any components of e are type-checked.
+//
 func (check *Checker) definedType(e syntax.Expr, def *Named) Type {
 	typ := check.typInternal(e, def)
 	assert(isTyped(typ))
@@ -214,6 +216,7 @@ func goTypeName(typ Type) string {
 
 // typInternal drives type checking of types.
 // Must only be called by definedType or genericType.
+//
 func (check *Checker) typInternal(e0 syntax.Expr, def *Named) (T Type) {
 	if check.conf.Trace {
 		check.trace(e0.Pos(), "-- type %s", e0)
@@ -345,6 +348,9 @@ func (check *Checker) typInternal(e0 syntax.Expr, def *Named) (T Type) {
 	case *syntax.InterfaceType:
 		typ := check.newInterface()
 		def.setUnderlying(typ)
+		if def != nil {
+			typ.obj = def.obj
+		}
 		check.interfaceType(typ, e, def)
 		return typ
 
@@ -369,7 +375,7 @@ func (check *Checker) typInternal(e0 syntax.Expr, def *Named) (T Type) {
 				}
 				check.errorf(e.Key, "invalid map key type %s%s", typ.key, why)
 			}
-		}).describef(e.Key, "check map key %s", typ.key)
+		})
 
 		return typ
 
@@ -406,7 +412,7 @@ func (check *Checker) typInternal(e0 syntax.Expr, def *Named) (T Type) {
 
 func (check *Checker) instantiatedType(x syntax.Expr, xlist []syntax.Expr, def *Named) (res Type) {
 	if check.conf.Trace {
-		check.trace(x.Pos(), "-- instantiating type %s with %s", x, xlist)
+		check.trace(x.Pos(), "-- instantiating %s with %s", x, xlist)
 		check.indent++
 		defer func() {
 			check.indent--
@@ -495,7 +501,7 @@ func (check *Checker) instantiatedType(x syntax.Expr, xlist []syntax.Expr, def *
 		}
 
 		check.validType(inst)
-	}).describef(x, "resolve instance %s", inst)
+	})
 
 	return inst
 }

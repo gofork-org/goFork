@@ -15,12 +15,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
 var (
-	GOROOT   = runtime.GOROOT() // cached for efficiency
+	defaultGOROOT string // set by linker
+
+	GOROOT   = envOr("GOROOT", defaultGOROOT)
 	GOARCH   = envOr("GOARCH", defaultGOARCH)
 	GOOS     = envOr("GOOS", defaultGOOS)
 	GO386    = envOr("GO386", defaultGO386)

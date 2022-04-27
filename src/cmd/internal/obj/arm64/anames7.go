@@ -15,7 +15,6 @@ var cnames7 = []string{
 	"SHIFT",
 	"EXTREG",
 	"SPR",
-	"SPOP",
 	"COND",
 	"ARNG",
 	"ELEM",

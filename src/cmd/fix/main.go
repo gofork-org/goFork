@@ -13,7 +13,6 @@ import (
 	"go/parser"
 	"go/scanner"
 	"go/token"
-	"internal/diff"
 	"io"
 	"io/fs"
 	"os"
@@ -21,6 +20,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"cmd/internal/diff"
 )
 
 var (
@@ -227,7 +228,12 @@ func processFile(filename string, useStdin bool) error {
 	}
 
 	if *doDiff {
-		os.Stdout.Write(diff.Diff(filename, src, "fixed/"+filename, newSrc))
+		data, err := diff.Diff("go-fix", src, newSrc)
+		if err != nil {
+			return fmt.Errorf("computing diff: %s", err)
+		}
+		fmt.Printf("diff %s fixed/%s\n", filename, filename)
+		os.Stdout.Write(data)
 		return nil
 	}
 

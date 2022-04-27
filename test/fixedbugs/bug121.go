@@ -9,7 +9,7 @@ package main
 type T func()
 
 type I interface {
-	f, g ();  // ERROR "unexpected comma"
+	f, g ();	// ERROR "name list not allowed"
 }
 
 type J interface {

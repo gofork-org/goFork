@@ -842,11 +842,9 @@ func mapiterinit(t *maptype, h *hmap, it *hiter) {
 	}
 
 	// decide where to start
-	var r uintptr
+	r := uintptr(fastrand())
 	if h.B > 31-bucketCntBits {
-		r = uintptr(fastrand64())
-	} else {
-		r = uintptr(fastrand())
+		r += uintptr(fastrand()) << 31
 	}
 	it.startBucket = r & bucketMask(h.B)
 	it.offset = uint8(r >> h.B & (bucketCnt - 1))

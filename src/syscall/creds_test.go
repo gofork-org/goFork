@@ -77,10 +77,8 @@ func TestSCMCredentials(t *testing.T) {
 			if sys, ok := err.(*os.SyscallError); ok {
 				err = sys.Err
 			}
-			switch err {
-			case syscall.EPERM, syscall.EINVAL:
-			default:
-				t.Fatalf("WriteMsgUnix failed with %v, want EPERM or EINVAL", err)
+			if err != syscall.EPERM {
+				t.Fatalf("WriteMsgUnix failed with %v, want EPERM", err)
 			}
 		}
 

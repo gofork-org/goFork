@@ -7,7 +7,6 @@ package time_test
 import (
 	"errors"
 	"fmt"
-	"internal/testenv"
 	"os"
 	"reflect"
 	"testing"
@@ -67,8 +66,8 @@ func TestLoadLocationValidatesNames(t *testing.T) {
 }
 
 func TestVersion3(t *testing.T) {
-	undo := time.DisablePlatformSources()
-	defer undo()
+	time.ForceZipFileForTesting(true)
+	defer time.ForceZipFileForTesting(false)
 	_, err := time.LoadLocation("Asia/Jerusalem")
 	if err != nil {
 		t.Fatal(err)
@@ -79,8 +78,8 @@ func TestVersion3(t *testing.T) {
 // transition time. To do this we explicitly check early dates in a
 // couple of specific timezones.
 func TestFirstZone(t *testing.T) {
-	undo := time.DisablePlatformSources()
-	defer undo()
+	time.ForceZipFileForTesting(true)
+	defer time.ForceZipFileForTesting(false)
 
 	const format = "Mon, 02 Jan 2006 15:04:05 -0700 (MST)"
 	var tests = []struct {
@@ -129,8 +128,8 @@ func TestLocationNames(t *testing.T) {
 }
 
 func TestLoadLocationFromTZData(t *testing.T) {
-	undo := time.DisablePlatformSources()
-	defer undo()
+	time.ForceZipFileForTesting(true)
+	defer time.ForceZipFileForTesting(false)
 
 	const locationName = "Asia/Jerusalem"
 	reference, err := time.LoadLocation(locationName)
@@ -138,11 +137,7 @@ func TestLoadLocationFromTZData(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gorootSource, ok := time.GorootZoneSource(testenv.GOROOT(t))
-	if !ok {
-		t.Fatal("Failed to locate tzinfo source in GOROOT.")
-	}
-	tzinfo, err := time.LoadTzinfo(locationName, gorootSource)
+	tzinfo, err := time.LoadTzinfo(locationName, time.OrigZoneSources[len(time.OrigZoneSources)-1])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,8 +153,8 @@ func TestLoadLocationFromTZData(t *testing.T) {
 
 // Issue 30099.
 func TestEarlyLocation(t *testing.T) {
-	undo := time.DisablePlatformSources()
-	defer undo()
+	time.ForceZipFileForTesting(true)
+	defer time.ForceZipFileForTesting(false)
 
 	const locName = "America/New_York"
 	loc, err := time.LoadLocation(locName)

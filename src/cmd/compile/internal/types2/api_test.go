@@ -26,7 +26,7 @@ const brokenPkg = "package broken_"
 
 func parseSrc(path, src string) (*syntax.File, error) {
 	errh := func(error) {} // dummy error handler so that parsing continues in presence of errors
-	return syntax.Parse(syntax.NewFileBase(path), strings.NewReader(src), errh, nil, 0)
+	return syntax.Parse(syntax.NewFileBase(path), strings.NewReader(src), errh, nil, syntax.AllowGenerics|syntax.AllowMethodTypeParams)
 }
 
 func pkgFor(path, source string, info *Info) (*Package, error) {
@@ -311,18 +311,6 @@ func TestTypesInfo(t *testing.T) {
 			`[][]struct{}`,
 		},
 
-		// issue 47243
-		{`package issue47243_a; var x int32; var _ = x << 3`, `3`, `untyped int`},
-		{`package issue47243_b; var x int32; var _ = x << 3.`, `3.`, `untyped float`},
-		{`package issue47243_c; var x int32; var _ = 1 << x`, `1 << x`, `int`},
-		{`package issue47243_d; var x int32; var _ = 1 << x`, `1`, `int`},
-		{`package issue47243_e; var x int32; var _ = 1 << 2`, `1`, `untyped int`},
-		{`package issue47243_f; var x int32; var _ = 1 << 2`, `2`, `untyped int`},
-		{`package issue47243_g; var x int32; var _ = int(1) << 2`, `2`, `untyped int`},
-		{`package issue47243_h; var x int32; var _ = 1 << (2 << x)`, `1`, `int`},
-		{`package issue47243_i; var x int32; var _ = 1 << (2 << x)`, `(2 << x)`, `untyped int`},
-		{`package issue47243_j; var x int32; var _ = 1 << (2 << x)`, `2`, `untyped int`},
-
 		// tests for broken code that doesn't parse or type-check
 		{brokenPkg + `x0; func _() { var x struct {f string}; x.f := 0 }`, `x.f`, `string`},
 		{brokenPkg + `x1; func _() { var z string; type x struct {f string}; y := &x{q: z}}`, `z`, `string`},
@@ -448,6 +436,36 @@ type T[P any] []P
 		{`package p4; func f[A, B any](A, *B, ...[]B) {}; func _() { f(1.2, new(byte)) }`,
 			[]testInst{{`f`, []string{`float64`, `byte`}, `func(float64, *byte, ...[]byte)`}},
 		},
+		// we don't know how to translate these but we can type-check them
+		{`package q0; type T struct{}; func (T) m[P any](P) {}; func _(x T) { x.m(42) }`,
+			[]testInst{{`m`, []string{`int`}, `func(int)`}},
+		},
+		{`package q1; type T struct{}; func (T) m[P any](P) P { panic(0) }; func _(x T) { x.m(42) }`,
+			[]testInst{{`m`, []string{`int`}, `func(int) int`}},
+		},
+		{`package q2; type T struct{}; func (T) m[P any](...P) P { panic(0) }; func _(x T) { x.m(42) }`,
+			[]testInst{{`m`, []string{`int`}, `func(...int) int`}},
+		},
+		{`package q3; type T struct{}; func (T) m[A, B, C any](A, *B, []C) {}; func _(x T) { x.m(1.2, new(string), []byte{}) }`,
+			[]testInst{{`m`, []string{`float64`, `string`, `byte`}, `func(float64, *string, []byte)`}},
+		},
+		{`package q4; type T struct{}; func (T) m[A, B any](A, *B, ...[]B) {}; func _(x T) { x.m(1.2, new(byte)) }`,
+			[]testInst{{`m`, []string{`float64`, `byte`}, `func(float64, *byte, ...[]byte)`}},
+		},
+
+		{`package r0; type T[P1 any] struct{}; func (_ T[P2]) m[Q any](Q) {}; func _[P3 any](x T[P3]) { x.m(42) }`,
+			[]testInst{
+				{`T`, []string{`P2`}, `struct{}`},
+				{`T`, []string{`P3`}, `struct{}`},
+				{`m`, []string{`int`}, `func(int)`},
+			},
+		},
+		// TODO(gri) record method type parameters in syntax.FuncType so we can check this
+		// {`package r1; type T interface{ m[P any](P) }; func _(x T) { x.m(4.2) }`,
+		// 	`x.m`,
+		// 	[]string{`float64`},
+		// 	`func(float64)`,
+		// },
 
 		{`package s1; func f[T any, P interface{*T}](x T) {}; func _(x string) { f(x) }`,
 			[]testInst{{`f`, []string{`string`, `*string`}, `func(x string)`}},
@@ -1410,23 +1428,15 @@ type C struct {
 	c int
 }
 
-type G[P any] struct {
-	p P
-}
-
-func (G[P]) m(P) {}
-
-var Inst G[int]
-
 func (C) g()
 func (*C) h()
 
 func main() {
 	// qualified identifiers
 	var _ lib.T
-	_ = lib.C
-	_ = lib.F
-	_ = lib.V
+        _ = lib.C
+        _ = lib.F
+        _ = lib.V
 	_ = lib.T.M
 
 	// fields
@@ -1442,30 +1452,25 @@ func main() {
 	_ = A{}.c
 	_ = new(A).c
 
-	_ = Inst.p
-	_ = G[string]{}.p
-
 	// methods
-	_ = A{}.f
-	_ = new(A).f
-	_ = A{}.g
-	_ = new(A).g
-	_ = new(A).h
+        _ = A{}.f
+        _ = new(A).f
+        _ = A{}.g
+        _ = new(A).g
+        _ = new(A).h
 
-	_ = B{}.f
-	_ = new(B).f
+        _ = B{}.f
+        _ = new(B).f
 
-	_ = C{}.g
-	_ = new(C).g
-	_ = new(C).h
-	_ = Inst.m
+        _ = C{}.g
+        _ = new(C).g
+        _ = new(C).h
 
 	// method expressions
-	_ = A.f
-	_ = (*A).f
-	_ = B.f
-	_ = (*B).f
-	_ = G[string].m
+        _ = A.f
+        _ = (*A).f
+        _ = B.f
+        _ = (*B).f
 }`
 
 	wantOut := map[string][2]string{
@@ -1479,7 +1484,6 @@ func main() {
 		"new(A).b": {"field (*main.A) b int", "->[0 0]"},
 		"A{}.c":    {"field (main.A) c int", ".[1 0]"},
 		"new(A).c": {"field (*main.A) c int", "->[1 0]"},
-		"Inst.p":   {"field (main.G[int]) p int", ".[0]"},
 
 		"A{}.f":    {"method (main.A) f(int)", "->[0 0]"},
 		"new(A).f": {"method (*main.A) f(int)", "->[0 0]"},
@@ -1491,14 +1495,11 @@ func main() {
 		"C{}.g":    {"method (main.C) g()", ".[0]"},
 		"new(C).g": {"method (*main.C) g()", "->[0]"},
 		"new(C).h": {"method (*main.C) h()", "->[1]"}, // TODO(gri) should this report .[1] ?
-		"Inst.m":   {"method (main.G[int]) m(int)", ".[0]"},
 
-		"A.f":           {"method expr (main.A) f(main.A, int)", "->[0 0]"},
-		"(*A).f":        {"method expr (*main.A) f(*main.A, int)", "->[0 0]"},
-		"B.f":           {"method expr (main.B) f(main.B, int)", ".[0]"},
-		"(*B).f":        {"method expr (*main.B) f(*main.B, int)", "->[0]"},
-		"G[string].m":   {"method expr (main.G[string]) m(main.G[string], string)", ".[0]"},
-		"G[string]{}.p": {"field (main.G[string]) p string", ".[0]"},
+		"A.f":    {"method expr (main.A) f(main.A, int)", "->[0 0]"},
+		"(*A).f": {"method expr (*main.A) f(*main.A, int)", "->[0 0]"},
+		"B.f":    {"method expr (main.B) f(main.B, int)", ".[0]"},
+		"(*B).f": {"method expr (*main.B) f(*main.B, int)", "->[0]"},
 	}
 
 	makePkg("lib", libSrc)

@@ -192,9 +192,8 @@ func (check *Checker) importPackage(at positioner, path, dir string) *Package {
 	// package should be complete or marked fake, but be cautious
 	if imp.complete || imp.fake {
 		check.impMap[key] = imp
-		// Once we've formatted an error message, keep the pkgPathMap
-		// up-to-date on subsequent imports. It is used for package
-		// qualification in error messages.
+		// Once we've formatted an error message once, keep the pkgPathMap
+		// up-to-date on subsequent imports.
 		if check.pkgPathMap != nil {
 			check.markImports(imp)
 		}
@@ -270,7 +269,7 @@ func (check *Checker) collectObjects() {
 				if d.spec.Name != nil {
 					name = d.spec.Name.Name
 					if path == "C" {
-						// match 1.17 cmd/compile (not prescribed by spec)
+						// match cmd/compile (not prescribed by spec)
 						check.errorf(d.spec.Name, _ImportCRenamed, `cannot rename import "C"`)
 						return
 					}
@@ -297,8 +296,8 @@ func (check *Checker) collectObjects() {
 					check.recordImplicit(d.spec, pkgName)
 				}
 
-				if imp.fake {
-					// match 1.17 cmd/compile (not prescribed by spec)
+				if path == "C" {
+					// match cmd/compile (not prescribed by spec)
 					pkgName.used = true
 				}
 
@@ -674,7 +673,7 @@ func (a inSourceOrder) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 
 // unusedImports checks for unused imports.
 func (check *Checker) unusedImports() {
-	// If function bodies are not checked, packages' uses are likely missing - don't check.
+	// if function bodies are not checked, packages' uses are likely missing - don't check
 	if check.conf.IgnoreFuncBodies {
 		return
 	}

@@ -19,7 +19,6 @@ import (
 )
 
 // Core Foundation linker flags for the external linker. See Issue 42459.
-//
 //go:cgo_ldflag "-framework"
 //go:cgo_ldflag "CoreFoundation"
 
@@ -38,12 +37,9 @@ func CFDataToSlice(data CFRef) []byte {
 }
 
 // CFStringToString returns a Go string representation of the passed
-// in CFString, or an empty string if it's invalid.
+// in CFString.
 func CFStringToString(ref CFRef) string {
-	data, err := CFStringCreateExternalRepresentation(ref)
-	if err != nil {
-		return ""
-	}
+	data := CFStringCreateExternalRepresentation(ref)
 	b := CFDataToSlice(data)
 	CFRelease(data)
 	return string(b)
@@ -190,12 +186,9 @@ func x509_CFErrorCopyDescription_trampoline()
 
 //go:cgo_import_dynamic x509_CFStringCreateExternalRepresentation CFStringCreateExternalRepresentation "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation"
 
-func CFStringCreateExternalRepresentation(strRef CFRef) (CFRef, error) {
+func CFStringCreateExternalRepresentation(strRef CFRef) CFRef {
 	ret := syscall(abi.FuncPCABI0(x509_CFStringCreateExternalRepresentation_trampoline), kCFAllocatorDefault, uintptr(strRef), kCFStringEncodingUTF8, 0, 0, 0)
-	if ret == 0 {
-		return 0, errors.New("string can't be represented as UTF-8")
-	}
-	return CFRef(ret), nil
+	return CFRef(ret)
 }
 func x509_CFStringCreateExternalRepresentation_trampoline()
 

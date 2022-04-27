@@ -24,8 +24,7 @@ func LookupRuntime(name string) *ir.Name {
 // successive occurrences of the "any" placeholder in the
 // type syntax expression n.Type.
 // The result of SubstArgTypes MUST be assigned back to old, e.g.
-//
-//	n.Left = SubstArgTypes(n.Left, t1, t2)
+// 	n.Left = SubstArgTypes(n.Left, t1, t2)
 func SubstArgTypes(old *ir.Name, types_ ...*types.Type) *ir.Name {
 	for _, t := range types_ {
 		types.CalcSize(t)
@@ -68,6 +67,7 @@ func Lookup(name string) *types.Sym {
 // but does not make them visible to user code.
 func InitRuntime() {
 	base.Timer.Start("fe", "loadsys")
+	types.Block = 1
 
 	typs := runtimeTypes()
 	for _, d := range &runtimeDecls {

@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"fmt"
 	"internal/goversion"
-	"internal/pkgbits"
 	"io"
 	"runtime"
 	"sort"
@@ -33,38 +32,38 @@ var localPkgReader *pkgReader
 //
 // The pipeline contains 2 steps:
 //
-//  1. Generate package export data "stub".
+// (1) Generate package export data "stub".
 //
-//  2. Generate package IR from package export data.
+// (2) Generate package IR from package export data.
 //
 // The package data "stub" at step (1) contains everything from the local package,
 // but nothing that have been imported. When we're actually writing out export data
 // to the output files (see writeNewExport function), we run the "linker", which does
 // a few things:
 //
-//   - Updates compiler extensions data (e.g., inlining cost, escape analysis results).
+// + Updates compiler extensions data (e.g., inlining cost, escape analysis results).
 //
-//   - Handles re-exporting any transitive dependencies.
+// + Handles re-exporting any transitive dependencies.
 //
-//   - Prunes out any unnecessary details (e.g., non-inlineable functions, because any
-//     downstream importers only care about inlinable functions).
+// + Prunes out any unnecessary details (e.g., non-inlineable functions, because any
+//   downstream importers only care about inlinable functions).
 //
 // The source files are typechecked twice, once before writing export data
 // using types2 checker, once after read export data using gc/typecheck.
 // This duplication of work will go away once we always use types2 checker,
 // we can remove the gc/typecheck pass. The reason it is still here:
 //
-//   - It reduces engineering costs in maintaining a fork of typecheck
-//     (e.g., no need to backport fixes like CL 327651).
+// + It reduces engineering costs in maintaining a fork of typecheck
+//   (e.g., no need to backport fixes like CL 327651).
 //
-//   - It makes it easier to pass toolstash -cmp.
+// + It makes it easier to pass toolstash -cmp.
 //
-//   - Historically, we would always re-run the typechecker after import, even though
-//     we know the imported data is valid. It's not ideal, but also not causing any
-//     problem either.
+// + Historically, we would always re-run the typechecker after import, even though
+//   we know the imported data is valid. It's not ideal, but also not causing any
+//   problem either.
 //
-//   - There's still transformation that being done during gc/typecheck, like rewriting
-//     multi-valued function call, or transform ir.OINDEX -> ir.OINDEXMAP.
+// + There's still transformation that being done during gc/typecheck, like rewriting
+//   multi-valued function call, or transform ir.OINDEX -> ir.OINDEXMAP.
 //
 // Using syntax+types2 tree, which already has a complete representation of generics,
 // the unified IR has the full typed AST for doing introspection during step (1).
@@ -72,6 +71,21 @@ var localPkgReader *pkgReader
 // (see writer.captureVars for an example).
 func unified(noders []*noder) {
 	inline.NewInline = InlineCall
+
+	if !quirksMode() {
+		writeNewExportFunc = writeNewExport
+	} else if base.Flag.G != 0 {
+		base.Errorf("cannot use -G and -d=quirksmode together")
+	}
+
+	newReadImportFunc = func(data string, pkg1 *types.Pkg, ctxt *types2.Context, packages map[string]*types2.Package) (pkg2 *types2.Package, err error) {
+		pr := newPkgDecoder(pkg1.Path, data)
+
+		// Read package descriptors for both types2 and compiler backend.
+		readPackage(newPkgReader(pr), pkg1)
+		pkg2 = readPackage2(ctxt, packages, pr)
+		return
+	}
 
 	data := writePkgStub(noders)
 
@@ -88,10 +102,10 @@ func unified(noders []*noder) {
 
 	typecheck.TypecheckAllowed = true
 
-	localPkgReader = newPkgReader(pkgbits.NewPkgDecoder(types.LocalPkg.Path, data))
+	localPkgReader = newPkgReader(newPkgDecoder(types.LocalPkg.Path, data))
 	readPackage(localPkgReader, types.LocalPkg)
 
-	r := localPkgReader.newReader(pkgbits.RelocMeta, pkgbits.PrivateRootIdx, pkgbits.SyncPrivate)
+	r := localPkgReader.newReader(relocMeta, privateRootIdx, syncPrivate)
 	r.pkgInit(types.LocalPkg, target)
 
 	// Type-check any top-level assignments. We ignore non-assignments
@@ -104,7 +118,25 @@ func unified(noders []*noder) {
 		}
 	}
 
-	readBodies(target)
+	// Don't use range--bodyIdx can add closures to todoBodies.
+	for len(todoBodies) > 0 {
+		// The order we expand bodies doesn't matter, so pop from the end
+		// to reduce todoBodies reallocations if it grows further.
+		fn := todoBodies[len(todoBodies)-1]
+		todoBodies = todoBodies[:len(todoBodies)-1]
+
+		pri, ok := bodyReader[fn]
+		assert(ok)
+		pri.funcBody(fn)
+
+		// Instantiated generic function: add to Decls for typechecking
+		// and compilation.
+		if fn.OClosure == nil && len(pri.dict.targs) != 0 {
+			target.Decls = append(target.Decls, fn)
+		}
+	}
+	todoBodies = nil
+	todoBodiesDone = true
 
 	// Check that nothing snuck past typechecking.
 	for _, n := range target.Decls {
@@ -124,28 +156,6 @@ func unified(noders []*noder) {
 	base.ExitIfErrors() // just in case
 }
 
-// readBodies reads in bodies for any
-func readBodies(target *ir.Package) {
-	// Don't use range--bodyIdx can add closures to todoBodies.
-	for len(todoBodies) > 0 {
-		// The order we expand bodies doesn't matter, so pop from the end
-		// to reduce todoBodies reallocations if it grows further.
-		fn := todoBodies[len(todoBodies)-1]
-		todoBodies = todoBodies[:len(todoBodies)-1]
-
-		pri, ok := bodyReader[fn]
-		assert(ok)
-		pri.funcBody(fn)
-
-		// Instantiated generic function: add to Decls for typechecking
-		// and compilation.
-		if fn.OClosure == nil && len(pri.dict.targs) != 0 {
-			target.Decls = append(target.Decls, fn)
-		}
-	}
-	todoBodies = nil
-}
-
 // writePkgStub type checks the given parsed source files,
 // writes an export data package stub representing them,
 // and returns the result.
@@ -156,36 +166,36 @@ func writePkgStub(noders []*noder) string {
 
 	pw.collectDecls(noders)
 
-	publicRootWriter := pw.newWriter(pkgbits.RelocMeta, pkgbits.SyncPublic)
-	privateRootWriter := pw.newWriter(pkgbits.RelocMeta, pkgbits.SyncPrivate)
+	publicRootWriter := pw.newWriter(relocMeta, syncPublic)
+	privateRootWriter := pw.newWriter(relocMeta, syncPrivate)
 
-	assert(publicRootWriter.Idx == pkgbits.PublicRootIdx)
-	assert(privateRootWriter.Idx == pkgbits.PrivateRootIdx)
+	assert(publicRootWriter.idx == publicRootIdx)
+	assert(privateRootWriter.idx == privateRootIdx)
 
 	{
 		w := publicRootWriter
 		w.pkg(pkg)
-		w.Bool(false) // has init; XXX
+		w.bool(false) // has init; XXX
 
 		scope := pkg.Scope()
 		names := scope.Names()
-		w.Len(len(names))
+		w.len(len(names))
 		for _, name := range scope.Names() {
 			w.obj(scope.Lookup(name), nil)
 		}
 
-		w.Sync(pkgbits.SyncEOF)
-		w.Flush()
+		w.sync(syncEOF)
+		w.flush()
 	}
 
 	{
 		w := privateRootWriter
 		w.pkgInit(noders)
-		w.Flush()
+		w.flush()
 	}
 
 	var sb bytes.Buffer // TODO(mdempsky): strings.Builder after #44505 is resolved
-	pw.DumpTo(&sb)
+	pw.dump(&sb)
 
 	// At this point, we're done with types2. Make sure the package is
 	// garbage collected.
@@ -229,69 +239,69 @@ func freePackage(pkg *types2.Package) {
 }
 
 func readPackage(pr *pkgReader, importpkg *types.Pkg) {
-	r := pr.newReader(pkgbits.RelocMeta, pkgbits.PublicRootIdx, pkgbits.SyncPublic)
+	r := pr.newReader(relocMeta, publicRootIdx, syncPublic)
 
 	pkg := r.pkg()
 	assert(pkg == importpkg)
 
-	if r.Bool() {
+	if r.bool() {
 		sym := pkg.Lookup(".inittask")
 		task := ir.NewNameAt(src.NoXPos, sym)
 		task.Class = ir.PEXTERN
 		sym.Def = task
 	}
 
-	for i, n := 0, r.Len(); i < n; i++ {
-		r.Sync(pkgbits.SyncObject)
-		assert(!r.Bool())
-		idx := r.Reloc(pkgbits.RelocObj)
-		assert(r.Len() == 0)
+	for i, n := 0, r.len(); i < n; i++ {
+		r.sync(syncObject)
+		assert(!r.bool())
+		idx := r.reloc(relocObj)
+		assert(r.len() == 0)
 
-		path, name, code := r.p.PeekObj(idx)
-		if code != pkgbits.ObjStub {
+		path, name, code := r.p.peekObj(idx)
+		if code != objStub {
 			objReader[types.NewPkg(path, "").Lookup(name)] = pkgReaderIndex{pr, idx, nil}
 		}
 	}
 }
 
-func writeUnifiedExport(out io.Writer) {
+func writeNewExport(out io.Writer) {
 	l := linker{
-		pw: pkgbits.NewPkgEncoder(base.Debug.SyncFrames),
+		pw: newPkgEncoder(),
 
 		pkgs:  make(map[string]int),
 		decls: make(map[*types.Sym]int),
 	}
 
-	publicRootWriter := l.pw.NewEncoder(pkgbits.RelocMeta, pkgbits.SyncPublic)
-	assert(publicRootWriter.Idx == pkgbits.PublicRootIdx)
+	publicRootWriter := l.pw.newEncoder(relocMeta, syncPublic)
+	assert(publicRootWriter.idx == publicRootIdx)
 
 	var selfPkgIdx int
 
 	{
 		pr := localPkgReader
-		r := pr.NewDecoder(pkgbits.RelocMeta, pkgbits.PublicRootIdx, pkgbits.SyncPublic)
+		r := pr.newDecoder(relocMeta, publicRootIdx, syncPublic)
 
-		r.Sync(pkgbits.SyncPkg)
-		selfPkgIdx = l.relocIdx(pr, pkgbits.RelocPkg, r.Reloc(pkgbits.RelocPkg))
+		r.sync(syncPkg)
+		selfPkgIdx = l.relocIdx(pr, relocPkg, r.reloc(relocPkg))
 
-		r.Bool() // has init
+		r.bool() // has init
 
-		for i, n := 0, r.Len(); i < n; i++ {
-			r.Sync(pkgbits.SyncObject)
-			assert(!r.Bool())
-			idx := r.Reloc(pkgbits.RelocObj)
-			assert(r.Len() == 0)
+		for i, n := 0, r.len(); i < n; i++ {
+			r.sync(syncObject)
+			assert(!r.bool())
+			idx := r.reloc(relocObj)
+			assert(r.len() == 0)
 
-			xpath, xname, xtag := pr.PeekObj(idx)
-			assert(xpath == pr.PkgPath())
-			assert(xtag != pkgbits.ObjStub)
+			xpath, xname, xtag := pr.peekObj(idx)
+			assert(xpath == pr.pkgPath)
+			assert(xtag != objStub)
 
 			if types.IsExported(xname) {
-				l.relocIdx(pr, pkgbits.RelocObj, idx)
+				l.relocIdx(pr, relocObj, idx)
 			}
 		}
 
-		r.Sync(pkgbits.SyncEOF)
+		r.sync(syncEOF)
 	}
 
 	{
@@ -303,22 +313,22 @@ func writeUnifiedExport(out io.Writer) {
 
 		w := publicRootWriter
 
-		w.Sync(pkgbits.SyncPkg)
-		w.Reloc(pkgbits.RelocPkg, selfPkgIdx)
+		w.sync(syncPkg)
+		w.reloc(relocPkg, selfPkgIdx)
 
-		w.Bool(typecheck.Lookup(".inittask").Def != nil)
+		w.bool(typecheck.Lookup(".inittask").Def != nil)
 
-		w.Len(len(idxs))
+		w.len(len(idxs))
 		for _, idx := range idxs {
-			w.Sync(pkgbits.SyncObject)
-			w.Bool(false)
-			w.Reloc(pkgbits.RelocObj, idx)
-			w.Len(0)
+			w.sync(syncObject)
+			w.bool(false)
+			w.reloc(relocObj, idx)
+			w.len(0)
 		}
 
-		w.Sync(pkgbits.SyncEOF)
-		w.Flush()
+		w.sync(syncEOF)
+		w.flush()
 	}
 
-	base.Ctxt.Fingerprint = l.pw.DumpTo(out)
+	l.pw.dump(out)
 }

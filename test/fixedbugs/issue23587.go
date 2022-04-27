@@ -7,7 +7,7 @@
 package p
 
 func _(x int) {
-	_ = ~x    // unary ~ permitted but the type-checker will complain
+	_ = ~x    // ERROR "unexpected ~"
 }
 
 func _(x int) {

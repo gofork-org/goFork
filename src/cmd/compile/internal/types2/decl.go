@@ -502,7 +502,7 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *syntax.TypeDecl, def *Named
 		}
 
 		check.brokenAlias(obj)
-		rhs = check.typ(tdecl.Type)
+		rhs = check.varType(tdecl.Type)
 		check.validAlias(obj, rhs)
 		return
 	}
@@ -716,7 +716,7 @@ func (check *Checker) funcDecl(obj *Func, decl *declInfo) {
 	if !check.conf.IgnoreFuncBodies && fdecl.Body != nil {
 		check.later(func() {
 			check.funcBody(decl, obj.name, sig, fdecl.Body, nil)
-		}).describef(obj, "func %s", obj.name)
+		})
 	}
 }
 
@@ -735,7 +735,7 @@ func (check *Checker) declStmt(list []syntax.Decl) {
 			top := len(check.delayed)
 
 			// iota is the index of the current constDecl within the group
-			if first < 0 || s.Group == nil || list[index-1].(*syntax.ConstDecl).Group != s.Group {
+			if first < 0 || list[index-1].(*syntax.ConstDecl).Group != s.Group {
 				first = index
 				last = nil
 			}

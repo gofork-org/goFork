@@ -50,9 +50,6 @@ func (e *escape) stmt(n ir.Node) {
 
 	case ir.OLABEL:
 		n := n.(*ir.LabelStmt)
-		if n.Label.IsBlank() {
-			break
-		}
 		switch e.labels[n.Label] {
 		case nonlooping:
 			if base.Flag.LowerM > 2 {

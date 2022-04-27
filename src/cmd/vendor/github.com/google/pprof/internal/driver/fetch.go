@@ -420,14 +420,12 @@ mapping:
 				fileNames = append(fileNames, filepath.Join(path, m.File))
 			}
 			for _, name := range fileNames {
-				if f, err := obj.Open(name, m.Start, m.Limit, m.Offset, m.KernelRelocationSymbol); err == nil {
+				if f, err := obj.Open(name, m.Start, m.Limit, m.Offset); err == nil {
 					defer f.Close()
 					fileBuildID := f.BuildID()
 					if m.BuildID != "" && m.BuildID != fileBuildID {
 						ui.PrintErr("Ignoring local file " + name + ": build-id mismatch (" + m.BuildID + " != " + fileBuildID + ")")
 					} else {
-						// Explicitly do not update KernelRelocationSymbol --
-						// the new local file name is most likely missing it.
 						m.File = name
 						continue mapping
 					}
@@ -451,8 +449,6 @@ mapping:
 	if execName, buildID := s.ExecName, s.BuildID; execName != "" || buildID != "" {
 		m := p.Mapping[0]
 		if execName != "" {
-			// Explicitly do not update KernelRelocationSymbol --
-			// the source override is most likely missing it.
 			m.File = execName
 		}
 		if buildID != "" {

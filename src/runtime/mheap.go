@@ -319,16 +319,16 @@ type arenaHint struct {
 // mSpanManual, or mSpanFree. Transitions between these states are
 // constrained as follows:
 //
-//   - A span may transition from free to in-use or manual during any GC
-//     phase.
+// * A span may transition from free to in-use or manual during any GC
+//   phase.
 //
-//   - During sweeping (gcphase == _GCoff), a span may transition from
-//     in-use to free (as a result of sweeping) or manual to free (as a
-//     result of stacks being freed).
+// * During sweeping (gcphase == _GCoff), a span may transition from
+//   in-use to free (as a result of sweeping) or manual to free (as a
+//   result of stacks being freed).
 //
-//   - During GC (gcphase != _GCoff), a span *must not* transition from
-//     manual or in-use to free. Because concurrent GC may read a pointer
-//     and then look up its span, the span state must be monotonic.
+// * During GC (gcphase != _GCoff), a span *must not* transition from
+//   manual or in-use to free. Because concurrent GC may read a pointer
+//   and then look up its span, the span state must be monotonic.
 //
 // Setting mspan.state to mSpanInUse or mSpanManual must be done
 // atomically and only after all other span fields are valid.
@@ -449,17 +449,16 @@ type mspan struct {
 	// if sweepgen == h->sweepgen + 3, the span was swept and then cached and is still cached
 	// h->sweepgen is incremented by 2 after every GC
 
-	sweepgen              uint32
-	divMul                uint32        // for divide by elemsize
-	allocCount            uint16        // number of allocated objects
-	spanclass             spanClass     // size class and noscan (uint8)
-	state                 mSpanStateBox // mSpanInUse etc; accessed atomically (get/set methods)
-	needzero              uint8         // needs to be zeroed before allocation
-	allocCountBeforeCache uint16        // a copy of allocCount that is stored just before this span is cached
-	elemsize              uintptr       // computed from sizeclass or from npages
-	limit                 uintptr       // end of data in span
-	speciallock           mutex         // guards specials list
-	specials              *special      // linked list of special records sorted by offset.
+	sweepgen    uint32
+	divMul      uint32        // for divide by elemsize
+	allocCount  uint16        // number of allocated objects
+	spanclass   spanClass     // size class and noscan (uint8)
+	state       mSpanStateBox // mSpanInUse etc; accessed atomically (get/set methods)
+	needzero    uint8         // needs to be zeroed before allocation
+	elemsize    uintptr       // computed from sizeclass or from npages
+	limit       uintptr       // end of data in span
+	speciallock mutex         // guards specials list
+	specials    *special      // linked list of special records sorted by offset.
 }
 
 func (s *mspan) base() uintptr {
@@ -590,7 +589,6 @@ func (i arenaIdx) l2() uint {
 // inheap reports whether b is a pointer into a (potentially dead) heap object.
 // It returns false for pointers into mSpanManual spans.
 // Non-preemptible because it is used by write barriers.
-//
 //go:nowritebarrier
 //go:nosplit
 func inheap(b uintptr) bool {
@@ -1708,7 +1706,7 @@ func spanHasNoSpecials(s *mspan) {
 // offset & next, which this routine will fill in.
 // Returns true if the special was successfully added, false otherwise.
 // (The add will fail only if a record with the same p and s->kind
-// already exists.)
+//  already exists.)
 func addspecial(p unsafe.Pointer, s *special) bool {
 	span := spanOfHeap(uintptr(p))
 	if span == nil {

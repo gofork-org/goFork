@@ -525,14 +525,8 @@ func Goexit() {
 // Used when crashing with panicking.
 func preprintpanics(p *_panic) {
 	defer func() {
-		text := "panic while printing panic value"
-		switch r := recover().(type) {
-		case nil:
-			// nothing to do
-		case string:
-			throw(text + ": " + r)
-		default:
-			throw(text + ": type " + efaceOf(&r)._type.string())
+		if recover() != nil {
+			throw("panic while printing panic value")
 		}
 	}()
 	for p != nil {
@@ -950,7 +944,6 @@ func gopanic(e any) {
 
 // getargp returns the location where the caller
 // writes outgoing function call arguments.
-//
 //go:nosplit
 //go:noinline
 func getargp() uintptr {
@@ -963,7 +956,6 @@ func getargp() uintptr {
 //
 // TODO(rsc): Once we commit to CopyStackAlways,
 // this doesn't need to be nosplit.
-//
 //go:nosplit
 func gorecover(argp uintptr) any {
 	// Must be in a function running as part of a deferred call during the panic.

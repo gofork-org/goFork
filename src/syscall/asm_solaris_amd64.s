@@ -48,6 +48,9 @@ TEXT ·getpid(SB),NOSPLIT,$0
 TEXT ·ioctl(SB),NOSPLIT,$0
 	JMP	runtime·syscall_ioctl(SB)
 
+TEXT ·pipe(SB),NOSPLIT,$0
+	JMP	runtime·syscall_pipe(SB)
+
 TEXT ·RawSyscall(SB),NOSPLIT,$0
 	JMP	runtime·syscall_rawsyscall(SB)
 

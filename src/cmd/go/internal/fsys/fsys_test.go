@@ -5,13 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"internal/testenv"
-	"internal/txtar"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"golang.org/x/tools/txtar"
 )
 
 // initOverlay resets the overlay state to reflect the config.

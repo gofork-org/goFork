@@ -1,4 +1,4 @@
-// run
+// run -gcflags=-G=3
 
 // Copyright 2021 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -28,6 +28,4 @@ func main() {
 	f[float64](int8(9))
 	f[int32](int32(7))
 	f[int](int32(7))
-	f[any](int(10))
-	f[interface{ M() }](int(11))
 }

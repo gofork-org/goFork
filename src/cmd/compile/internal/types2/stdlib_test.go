@@ -15,6 +15,7 @@ import (
 	"internal/testenv"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -28,7 +29,7 @@ func TestStdlib(t *testing.T) {
 	testenv.MustHaveGoBuild(t)
 
 	pkgCount := 0
-	duration := walkPkgDirs(filepath.Join(testenv.GOROOT(t), "src"), func(dir string, filenames []string) {
+	duration := walkPkgDirs(filepath.Join(runtime.GOROOT(), "src"), func(dir string, filenames []string) {
 		typecheck(t, dir, filenames)
 		pkgCount++
 	}, t.Error)
@@ -161,7 +162,7 @@ func TestStdTest(t *testing.T) {
 		t.Skip("skipping in short mode")
 	}
 
-	testTestDir(t, filepath.Join(testenv.GOROOT(t), "test"),
+	testTestDir(t, filepath.Join(runtime.GOROOT(), "test"),
 		"cmplxdivide.go", // also needs file cmplxdivide1.go - ignore
 		"directive.go",   // tests compiler rejection of bad directive placement - ignore
 		"directive2.go",  // tests compiler rejection of bad directive placement - ignore
@@ -179,7 +180,7 @@ func TestStdFixed(t *testing.T) {
 		t.Skip("skipping in short mode")
 	}
 
-	testTestDir(t, filepath.Join(testenv.GOROOT(t), "test", "fixedbugs"),
+	testTestDir(t, filepath.Join(runtime.GOROOT(), "test", "fixedbugs"),
 		"bug248.go", "bug302.go", "bug369.go", // complex test instructions - ignore
 		"issue6889.go",   // gc-specific test
 		"issue11362.go",  // canonical import path check
@@ -203,7 +204,7 @@ func TestStdFixed(t *testing.T) {
 func TestStdKen(t *testing.T) {
 	testenv.MustHaveGoBuild(t)
 
-	testTestDir(t, filepath.Join(testenv.GOROOT(t), "test", "ken"))
+	testTestDir(t, filepath.Join(runtime.GOROOT(), "test", "ken"))
 }
 
 // Package paths of excluded packages.
@@ -220,7 +221,7 @@ func typecheck(t *testing.T, path string, filenames []string) {
 	var files []*syntax.File
 	for _, filename := range filenames {
 		errh := func(err error) { t.Error(err) }
-		file, err := syntax.ParseFile(filename, errh, nil, 0)
+		file, err := syntax.ParseFile(filename, errh, nil, syntax.AllowGenerics)
 		if err != nil {
 			return
 		}
@@ -310,13 +311,16 @@ func (w *walker) walk(dir string) {
 	}
 
 	// apply pkgh to the files in directory dir
-	pkgFiles, err := pkgFilenames(dir)
-	if err != nil {
-		w.errh(err)
-		return
-	}
-	if pkgFiles != nil {
-		w.pkgh(dir, pkgFiles)
+	// but ignore files directly under $GOROOT/src (might be temporary test files).
+	if dir != filepath.Join(runtime.GOROOT(), "src") {
+		files, err := pkgFilenames(dir)
+		if err != nil {
+			w.errh(err)
+			return
+		}
+		if files != nil {
+			w.pkgh(dir, files)
+		}
 	}
 
 	// traverse subdirectories, but don't walk into testdata

@@ -408,8 +408,8 @@ func TestParseInLocation(t *testing.T) {
 }
 
 func TestLoadLocationZipFile(t *testing.T) {
-	undo := DisablePlatformSources()
-	defer undo()
+	ForceZipFileForTesting(true)
+	defer ForceZipFileForTesting(false)
 
 	_, err := LoadLocation("Australia/Sydney")
 	if err != nil {

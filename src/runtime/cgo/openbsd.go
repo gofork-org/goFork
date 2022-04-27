@@ -17,5 +17,4 @@ var _guard_local uintptr
 
 // This is normally marked as hidden and placed in the
 // .openbsd.randomdata section.
-//
 //go:cgo_export_dynamic __guard_local __guard_local

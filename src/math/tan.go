@@ -76,7 +76,6 @@ var _tanQ = [...]float64{
 // Tan returns the tangent of the radian argument x.
 //
 // Special cases are:
-//
 //	Tan(±0) = ±0
 //	Tan(±Inf) = NaN
 //	Tan(NaN) = NaN

@@ -55,7 +55,6 @@ var quotetests = []quoteTest{
 	{"\x04", `"\x04"`, `"\x04"`, `"\x04"`},
 	// Some non-printable but graphic runes. Final column is double-quoted.
 	{"!\u00a0!\u2000!\u3000!", `"!\u00a0!\u2000!\u3000!"`, `"!\u00a0!\u2000!\u3000!"`, "\"!\u00a0!\u2000!\u3000!\""},
-	{"\x7f", `"\x7f"`, `"\x7f"`, `"\x7f"`},
 }
 
 func TestQuote(t *testing.T) {

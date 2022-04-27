@@ -3,7 +3,6 @@
 // license that can be found in the LICENSE file.
 
 // The file contains tests that cannot run under race detector for some reason.
-//
 //go:build !race
 
 package runtime_test

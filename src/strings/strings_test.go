@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"math"
 	"math/rand"
 	"reflect"
 	"strconv"
@@ -405,7 +404,6 @@ var splittests = []SplitTest{
 	{faces, "~", -1, []string{faces}},
 	{"1 2 3 4", " ", 3, []string{"1", "2", "3 4"}},
 	{"1 2", " ", 3, []string{"1", "2"}},
-	{"", "T", math.MaxInt / 4, []string{""}},
 }
 
 func TestSplit(t *testing.T) {

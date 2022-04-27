@@ -21,7 +21,6 @@ import (
 // tflag is documented in reflect/type.go.
 //
 // tflag values must be kept in sync with copies in:
-//
 //	cmd/compile/internal/reflectdata/reflect.go
 //	cmd/link/internal/ld/decodesym.go
 //	reflect/type.go

@@ -1944,7 +1944,7 @@ func TestAESCipherReorderingTLS13(t *testing.T) {
 	}
 }
 
-// TestServerHandshakeContextCancellation tests that canceling
+// TestServerHandshakeContextCancellation tests that cancelling
 // the context given to the server side conn.HandshakeContext
 // interrupts the in-progress handshake.
 func TestServerHandshakeContextCancellation(t *testing.T) {

@@ -494,7 +494,6 @@ var modulesSlice *[]*moduledata // see activeModules
 //
 // This is nosplit/nowritebarrier because it is called by the
 // cgo pointer checking code.
-//
 //go:nosplit
 //go:nowritebarrier
 func activeModules() []*moduledata {
@@ -660,7 +659,6 @@ func moduledataverify1(datap *moduledata) {
 // relocated baseaddr to compute the function address.
 //
 // It is nosplit because it is part of the findfunc implementation.
-//
 //go:nosplit
 func (md *moduledata) textAddr(off32 uint32) uintptr {
 	off := uintptr(off32)
@@ -685,7 +683,6 @@ func (md *moduledata) textAddr(off32 uint32) uintptr {
 // to md.text, and returns if the PC is in any Go text section.
 //
 // It is nosplit because it is part of the findfunc implementation.
-//
 //go:nosplit
 func (md *moduledata) textOff(pc uintptr) (uint32, bool) {
 	res := uint32(pc - md.text)

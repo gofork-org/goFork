@@ -58,6 +58,10 @@ func tcShift(n, l, r ir.Node) (ir.Node, ir.Node, *types.Type) {
 		base.Errorf("invalid operation: %v (shift count type %v, must be integer)", n, r.Type())
 		return l, r, nil
 	}
+	if t.IsSigned() && !types.AllowsGoVersion(curpkg(), 1, 13) {
+		base.ErrorfVers("go1.13", "invalid operation: %v (signed shift count type %v)", n, r.Type())
+		return l, r, nil
+	}
 	t = l.Type()
 	if t != nil && t.Kind() != types.TIDEAL && !t.IsInteger() {
 		base.Errorf("invalid operation: %v (shift of type %v)", n, t)
@@ -76,9 +80,8 @@ func tcShift(n, l, r ir.Node) (ir.Node, ir.Node, *types.Type) {
 // tcArith typechecks operands of a binary arithmetic expression.
 // The result of tcArith MUST be assigned back to original operands,
 // t is the type of the expression, and should be set by the caller. e.g:
-//
-//	n.X, n.Y, t = tcArith(n, op, n.X, n.Y)
-//	n.SetType(t)
+//     n.X, n.Y, t = tcArith(n, op, n.X, n.Y)
+//     n.SetType(t)
 func tcArith(n ir.Node, op ir.Op, l, r ir.Node) (ir.Node, ir.Node, *types.Type) {
 	l, r = defaultlit2(l, r, false)
 	if l.Type() == nil || r.Type() == nil {
@@ -195,8 +198,7 @@ func tcArith(n ir.Node, op ir.Op, l, r ir.Node) (ir.Node, ir.Node, *types.Type) 
 }
 
 // The result of tcCompLit MUST be assigned back to n, e.g.
-//
-//	n.Left = tcCompLit(n.Left)
+// 	n.Left = tcCompLit(n.Left)
 func tcCompLit(n *ir.CompLitExpr) (res ir.Node) {
 	if base.EnableTrace && base.Flag.LowerT {
 		defer tracePrint("tcCompLit", n)(&res)
@@ -217,6 +219,21 @@ func tcCompLit(n *ir.CompLitExpr) (res ir.Node) {
 	n.SetOrig(ir.Copy(n))
 
 	ir.SetPos(n.Ntype)
+
+	// Need to handle [...]T arrays specially.
+	if array, ok := n.Ntype.(*ir.ArrayType); ok && array.Elem != nil && array.Len == nil {
+		array.Elem = typecheckNtype(array.Elem)
+		elemType := array.Elem.Type()
+		if elemType == nil {
+			n.SetType(nil)
+			return n
+		}
+		length := typecheckarraylit(elemType, -1, n.List, "array literal")
+		n.SetOp(ir.OARRAYLIT)
+		n.SetType(types.NewArray(elemType, length))
+		n.Ntype = nil
+		return n
+	}
 
 	n.Ntype = typecheckNtype(n.Ntype)
 	t := n.Ntype.Type()
@@ -243,6 +260,7 @@ func tcCompLit(n *ir.CompLitExpr) (res ir.Node) {
 		n.Len = length
 
 	case types.TMAP:
+		var cs constSet
 		for i3, l := range n.List {
 			ir.SetPos(l)
 			if l.Op() != ir.OKEY {
@@ -256,6 +274,7 @@ func tcCompLit(n *ir.CompLitExpr) (res ir.Node) {
 			r = pushtype(r, t.Key())
 			r = Expr(r)
 			l.Key = AssignConv(r, t.Key(), "map key")
+			cs.add(base.Pos, l.Key, "key", "map literal")
 
 			r = l.Value
 			r = pushtype(r, t.Elem())
@@ -356,7 +375,13 @@ func tcCompLit(n *ir.CompLitExpr) (res ir.Node) {
 func tcStructLitKey(typ *types.Type, kv *ir.KeyExpr) *ir.StructKeyExpr {
 	key := kv.Key
 
+	// Sym might have resolved to name in other top-level
+	// package, because of import dot. Redirect to correct sym
+	// before we do the lookup.
 	sym := key.Sym()
+	if id, ok := key.(*ir.Ident); ok && DotImportRefs[id] != nil {
+		sym = Lookup(sym.Name)
+	}
 
 	// An OXDOT uses the Sym field to hold
 	// the field to the right of the dot,
@@ -411,7 +436,13 @@ func tcConv(n *ir.ConvExpr) ir.Node {
 	}
 	op, why := Convertop(n.X.Op() == ir.OLITERAL, t, n.Type())
 	if op == ir.OXXX {
-		base.Fatalf("cannot convert %L to type %v%s", n.X, n.Type(), why)
+		if !n.Diag() && !n.Type().Broke() && !n.X.Diag() {
+			base.Errorf("cannot convert %L to type %v%s", n.X, n.Type(), why)
+			n.SetDiag(true)
+		}
+		n.SetOp(ir.OCONV)
+		n.SetType(nil)
+		return n
 	}
 
 	n.SetOp(op)

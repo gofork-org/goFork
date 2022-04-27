@@ -35,6 +35,7 @@ import (
 // implementation. It is also used by tests.
 //
 // The default behavior (vetTool=="") runs 'go tool vet'.
+//
 var vetTool string // -vettool
 
 func init() {

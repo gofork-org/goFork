@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"go/token"
 	"internal/goarch"
-	"internal/testenv"
 	"io"
 	"math"
 	"math/rand"
@@ -364,10 +363,6 @@ func TestMapIterSet(t *testing.T) {
 		}
 	}
 
-	if strings.HasSuffix(testenv.Builder(), "-noopt") {
-		return // no inlining with the noopt builder
-	}
-
 	got := int(testing.AllocsPerRun(10, func() {
 		iter := v.MapRange()
 		for iter.Next() {
@@ -375,12 +370,9 @@ func TestMapIterSet(t *testing.T) {
 			e.SetIterValue(iter)
 		}
 	}))
-	// Calling MapRange should not allocate even though it returns a *MapIter.
-	// The function is inlineable, so if the local usage does not escape
-	// the *MapIter, it can remain stack allocated.
-	want := 0
-	if got != want {
-		t.Errorf("wanted %d alloc, got %d", want, got)
+	// Making a *MapIter allocates. This should be the only allocation.
+	if got != 1 {
+		t.Errorf("wanted 1 alloc, got %d", got)
 	}
 }
 
@@ -3690,11 +3682,8 @@ func TestTagGet(t *testing.T) {
 }
 
 func TestBytes(t *testing.T) {
-	shouldPanic("on int Value", func() { ValueOf(0).Bytes() })
-	shouldPanic("of non-byte slice", func() { ValueOf([]string{}).Bytes() })
-
-	type S []byte
-	x := S{1, 2, 3, 4}
+	type B []byte
+	x := B{1, 2, 3, 4}
 	y := ValueOf(x).Bytes()
 	if !bytes.Equal(x, y) {
 		t.Fatalf("ValueOf(%v).Bytes() = %v", x, y)
@@ -3702,28 +3691,6 @@ func TestBytes(t *testing.T) {
 	if &x[0] != &y[0] {
 		t.Errorf("ValueOf(%p).Bytes() = %p", &x[0], &y[0])
 	}
-
-	type A [4]byte
-	a := A{1, 2, 3, 4}
-	shouldPanic("unaddressable", func() { ValueOf(a).Bytes() })
-	shouldPanic("on ptr Value", func() { ValueOf(&a).Bytes() })
-	b := ValueOf(&a).Elem().Bytes()
-	if !bytes.Equal(a[:], y) {
-		t.Fatalf("ValueOf(%v).Bytes() = %v", a, b)
-	}
-	if &a[0] != &b[0] {
-		t.Errorf("ValueOf(%p).Bytes() = %p", &a[0], &b[0])
-	}
-
-	// Per issue #24746, it was decided that Bytes can be called on byte slices
-	// that normally cannot be converted from per Go language semantics.
-	type B byte
-	type SB []B
-	type AB [4]B
-	ValueOf([]B{1, 2, 3, 4}).Bytes()  // should not panic
-	ValueOf(new([4]B)).Elem().Bytes() // should not panic
-	ValueOf(SB{1, 2, 3, 4}).Bytes()   // should not panic
-	ValueOf(new(AB)).Elem().Bytes()   // should not panic
 }
 
 func TestSetBytes(t *testing.T) {
@@ -6299,6 +6266,7 @@ func TestAllocsInterfaceSmall(t *testing.T) {
 //	[false false false false]
 //	...
 //	[true true true true]
+//
 type exhaustive struct {
 	r    *rand.Rand
 	pos  int
@@ -7812,170 +7780,5 @@ func TestIssue50208(t *testing.T) {
 	want2 := "B[reflect_test.B[reflect_test.A]]"
 	if got := TypeOf(new(B[B[A]])).Elem().Name(); got != want2 {
 		t.Errorf("name of type parameter mismatched, want:%s, got:%s", want2, got)
-	}
-}
-
-func TestNegativeKindString(t *testing.T) {
-	x := -1
-	s := Kind(x).String()
-	want := "kind-1"
-	if s != want {
-		t.Fatalf("Kind(-1).String() = %q, want %q", s, want)
-	}
-}
-
-type (
-	namedBool  bool
-	namedBytes []byte
-)
-
-var sourceAll = struct {
-	Bool         Value
-	String       Value
-	Bytes        Value
-	NamedBytes   Value
-	BytesArray   Value
-	SliceAny     Value
-	MapStringAny Value
-}{
-	Bool:         ValueOf(new(bool)).Elem(),
-	String:       ValueOf(new(string)).Elem(),
-	Bytes:        ValueOf(new([]byte)).Elem(),
-	NamedBytes:   ValueOf(new(namedBytes)).Elem(),
-	BytesArray:   ValueOf(new([32]byte)).Elem(),
-	SliceAny:     ValueOf(new([]any)).Elem(),
-	MapStringAny: ValueOf(new(map[string]any)).Elem(),
-}
-
-var sinkAll struct {
-	RawBool   bool
-	RawString string
-	RawBytes  []byte
-	RawInt    int
-}
-
-func BenchmarkBool(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		sinkAll.RawBool = sourceAll.Bool.Bool()
-	}
-}
-
-func BenchmarkString(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		sinkAll.RawString = sourceAll.String.String()
-	}
-}
-
-func BenchmarkBytes(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		sinkAll.RawBytes = sourceAll.Bytes.Bytes()
-	}
-}
-
-func BenchmarkNamedBytes(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		sinkAll.RawBytes = sourceAll.NamedBytes.Bytes()
-	}
-}
-
-func BenchmarkBytesArray(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		sinkAll.RawBytes = sourceAll.BytesArray.Bytes()
-	}
-}
-
-func BenchmarkSliceLen(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		sinkAll.RawInt = sourceAll.SliceAny.Len()
-	}
-}
-
-func BenchmarkMapLen(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		sinkAll.RawInt = sourceAll.MapStringAny.Len()
-	}
-}
-
-func BenchmarkStringLen(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		sinkAll.RawInt = sourceAll.String.Len()
-	}
-}
-
-func BenchmarkArrayLen(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		sinkAll.RawInt = sourceAll.BytesArray.Len()
-	}
-}
-
-func BenchmarkSliceCap(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		sinkAll.RawInt = sourceAll.SliceAny.Cap()
-	}
-}
-
-func TestValue_Cap(t *testing.T) {
-	a := &[3]int{1, 2, 3}
-	v := ValueOf(a)
-	if v.Cap() != cap(a) {
-		t.Errorf("Cap = %d want %d", v.Cap(), cap(a))
-	}
-
-	a = nil
-	v = ValueOf(a)
-	if v.Cap() != cap(a) {
-		t.Errorf("Cap = %d want %d", v.Cap(), cap(a))
-	}
-
-	getError := func(f func()) (errorStr string) {
-		defer func() {
-			e := recover()
-			if str, ok := e.(string); ok {
-				errorStr = str
-			}
-		}()
-		f()
-		return
-	}
-	e := getError(func() {
-		var ptr *int
-		ValueOf(ptr).Cap()
-	})
-	wantStr := "reflect: call of reflect.Value.Cap on ptr to non-array Value"
-	if e != wantStr {
-		t.Errorf("error is %q, want %q", e, wantStr)
-	}
-}
-
-func TestValue_Len(t *testing.T) {
-	a := &[3]int{1, 2, 3}
-	v := ValueOf(a)
-	if v.Len() != len(a) {
-		t.Errorf("Len = %d want %d", v.Len(), len(a))
-	}
-
-	a = nil
-	v = ValueOf(a)
-	if v.Len() != len(a) {
-		t.Errorf("Len = %d want %d", v.Len(), len(a))
-	}
-
-	getError := func(f func()) (errorStr string) {
-		defer func() {
-			e := recover()
-			if str, ok := e.(string); ok {
-				errorStr = str
-			}
-		}()
-		f()
-		return
-	}
-	e := getError(func() {
-		var ptr *int
-		ValueOf(ptr).Len()
-	})
-	wantStr := "reflect: call of reflect.Value.Len on ptr to non-array Value"
-	if e != wantStr {
-		t.Errorf("error is %q, want %q", e, wantStr)
 	}
 }

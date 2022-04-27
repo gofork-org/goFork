@@ -102,9 +102,6 @@ func (d TestFrontend) Debug_checknil() bool                               { retu
 func (d TestFrontend) MyImportPath() string {
 	return "my/import/path"
 }
-func (d TestFrontend) LSym() string {
-	return "my/import/path.function"
-}
 
 var testTypes Types
 

@@ -49,9 +49,7 @@ type Range32 struct {
 // means the character is in the corresponding case. There is a special
 // case representing sequences of alternating corresponding Upper and Lower
 // pairs. It appears with a fixed Delta of
-//
 //	{UpperLower, UpperLower, UpperLower}
-//
 // The constant UpperLower has an otherwise impossible delta value.
 type CaseRange struct {
 	Lo    uint32
@@ -326,7 +324,6 @@ type foldPair struct {
 // If r is not a valid Unicode code point, SimpleFold(r) returns r.
 //
 // For example:
-//
 //	SimpleFold('A') = 'a'
 //	SimpleFold('a') = 'A'
 //
@@ -337,6 +334,7 @@ type foldPair struct {
 //	SimpleFold('1') = '1'
 //
 //	SimpleFold(-2) = -2
+//
 func SimpleFold(r rune) rune {
 	if r < 0 || r > MaxRune {
 		return r

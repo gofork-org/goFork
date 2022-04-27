@@ -112,11 +112,6 @@ func checkaddr(ctxt *Link, p *Prog, a *Addr) {
 			break
 		}
 		return
-	case TYPE_SPECIAL:
-		if a.Reg != 0 || a.Index != 0 || a.Scale != 0 || a.Name != 0 || a.Class != 0 || a.Sym != nil {
-			break
-		}
-		return
 	}
 
 	ctxt.Diag("invalid encoding for argument %v", p)

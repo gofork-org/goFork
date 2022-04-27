@@ -24,8 +24,7 @@ import (
 // previous instances with the same identity. As a special case, generic
 // *Signature origin types are only considered identical if they are pointer
 // equivalent, so that instantiating distinct (but possibly identical)
-// signatures will yield different instances. The use of a shared context does
-// not guarantee that identical instances are deduplicated in all cases.
+// signatures will yield different instances.
 //
 // If validate is set, Instantiate verifies that the number of type arguments
 // and parameters match, and that the type arguments satisfy their
@@ -62,7 +61,7 @@ func Instantiate(ctxt *Context, orig Type, targs []Type, validate bool) (Type, e
 
 // instance creates a type or function instance using the given original type
 // typ and arguments targs. For Named types the resulting instance will be
-// unexpanded. check may be nil.
+// unexpanded.
 func (check *Checker) instance(pos token.Pos, orig Type, targs []Type, ctxt *Context) (res Type) {
 	var h string
 	if ctxt != nil {
@@ -104,7 +103,6 @@ func (check *Checker) instance(pos token.Pos, orig Type, targs []Type, ctxt *Con
 		// anymore; we need to set tparams to nil.
 		sig.tparams = nil
 		res = sig
-
 	default:
 		// only types and functions can be generic
 		panic(fmt.Sprintf("%v: cannot instantiate %v", pos, orig))

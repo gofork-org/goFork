@@ -15,6 +15,7 @@ import (
 // An Interface represents an interface type.
 type Interface struct {
 	check     *Checker     // for error reporting; nil once type set is computed
+	obj       *TypeName    // type name object defining this interface; or nil (for better error messages)
 	methods   []*Func      // ordered list of explicitly declared methods
 	embeddeds []Type       // ordered list of explicitly embedded elements
 	embedPos  *[]token.Pos // positions of embedded elements; or nil (for error messages) - use pointer to save space
@@ -173,7 +174,7 @@ func (check *Checker) interfaceType(ityp *Interface, iface *ast.InterfaceType, d
 		// We have a method with name f.Names[0].
 		name := f.Names[0]
 		if name.Name == "_" {
-			check.errorf(name, _BlankIfaceMethod, "methods must have a unique non-blank name")
+			check.errorf(name, _BlankIfaceMethod, "invalid method name _")
 			continue // ignore
 		}
 

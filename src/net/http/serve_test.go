@@ -3035,13 +3035,6 @@ func testRequestBodyLimit(t *testing.T, h2 bool) {
 		if n != limit {
 			t.Errorf("io.Copy = %d, want %d", n, limit)
 		}
-		mbErr, ok := err.(*MaxBytesError)
-		if !ok {
-			t.Errorf("expected MaxBytesError, got %T", err)
-		}
-		if mbErr.Limit != limit {
-			t.Errorf("MaxBytesError.Limit = %d, want %d", mbErr.Limit, limit)
-		}
 	}))
 	defer cst.close()
 
@@ -4884,7 +4877,11 @@ func TestServerRequestContextCancel_ConnClose(t *testing.T) {
 	handlerDone := make(chan struct{})
 	ts := httptest.NewServer(HandlerFunc(func(w ResponseWriter, r *Request) {
 		close(inHandler)
-		<-r.Context().Done()
+		select {
+		case <-r.Context().Done():
+		case <-time.After(3 * time.Second):
+			t.Errorf("timeout waiting for context to be done")
+		}
 		close(handlerDone)
 	}))
 	defer ts.Close()
@@ -4894,9 +4891,18 @@ func TestServerRequestContextCancel_ConnClose(t *testing.T) {
 	}
 	defer c.Close()
 	io.WriteString(c, "GET / HTTP/1.1\r\nHost: foo\r\n\r\n")
-	<-inHandler
+	select {
+	case <-inHandler:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timeout waiting to see ServeHTTP get called")
+	}
 	c.Close() // this should trigger the context being done
-	<-handlerDone
+
+	select {
+	case <-handlerDone:
+	case <-time.After(4 * time.Second):
+		t.Fatalf("timeout waiting to see ServeHTTP exit")
+	}
 }
 
 func TestServerContext_ServerContextKey_h1(t *testing.T) {
@@ -5071,11 +5077,10 @@ func benchmarkClientServerParallel(b *testing.B, parallelism int, useTLS bool) {
 // The client code runs in a subprocess.
 //
 // For use like:
-//
-//	$ go test -c
-//	$ ./http.test -test.run=XX -test.bench=BenchmarkServer -test.benchtime=15s -test.cpuprofile=http.prof
-//	$ go tool pprof http.test http.prof
-//	(pprof) web
+//   $ go test -c
+//   $ ./http.test -test.run=XX -test.bench=BenchmarkServer -test.benchtime=15s -test.cpuprofile=http.prof
+//   $ go tool pprof http.test http.prof
+//   (pprof) web
 func BenchmarkServer(b *testing.B) {
 	b.ReportAllocs()
 	// Child process mode;

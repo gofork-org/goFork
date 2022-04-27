@@ -17,8 +17,8 @@ var zones = []string{
 }
 
 func TestEmbeddedTZData(t *testing.T) {
-	undo := time.DisablePlatformSources()
-	defer undo()
+	time.ForceZipFileForTesting(true)
+	defer time.ForceZipFileForTesting(false)
 
 	for _, zone := range zones {
 		ref, err := time.LoadLocation(zone)

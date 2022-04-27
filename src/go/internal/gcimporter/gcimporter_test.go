@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"go/ast"
-	"go/build"
 	"go/importer"
 	"go/parser"
 	"go/token"
@@ -26,11 +25,6 @@ import (
 
 	. "go/internal/gcimporter"
 )
-
-func TestMain(m *testing.M) {
-	build.Default.GOROOT = testenv.GOROOT(nil)
-	os.Exit(m.Run())
-}
 
 // skipSpecialPlatforms causes the test to be skipped for platforms where
 // builders (build.golang.org) don't have access to compiled packages for
@@ -51,7 +45,7 @@ func compile(t *testing.T, dirname, filename, outdirname string) string {
 	}
 	basename := filepath.Base(filename)
 	outname := filepath.Join(outdirname, basename[:len(basename)-2]+"o")
-	cmd := exec.Command(testenv.GoToolPath(t), "tool", "compile", "-p=p", "-o", outname, filename)
+	cmd := exec.Command(testenv.GoToolPath(t), "tool", "compile", "-o", outname, filename)
 	cmd.Dir = dirname
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -78,7 +72,7 @@ const maxTime = 30 * time.Second
 var pkgExts = [...]string{".a", ".o"} // keep in sync with gcimporter.go
 
 func testDir(t *testing.T, dir string, endTime time.Time) (nimports int) {
-	dirname := filepath.Join(testenv.GOROOT(t), "pkg", runtime.GOOS+"_"+runtime.GOARCH, dir)
+	dirname := filepath.Join(runtime.GOROOT(), "pkg", runtime.GOOS+"_"+runtime.GOARCH, dir)
 	list, err := os.ReadDir(dirname)
 	if err != nil {
 		t.Fatalf("testDir(%s): %s", dirname, err)
@@ -125,14 +119,10 @@ func TestImportTestdata(t *testing.T) {
 	}
 
 	testfiles := map[string][]string{
-		"exports.go":  {"go/ast", "go/token"},
-		"generics.go": nil,
+		"exports.go": {"go/ast", "go/token"},
 	}
-	if goexperiment.Unified {
-		// TODO(mdempsky): Fix test below to flatten the transitive
-		// Package.Imports graph. Unified IR is more precise about
-		// recreating the package import graph.
-		testfiles["exports.go"] = []string{"go/ast"}
+	if !goexperiment.Unified {
+		testfiles["generics.go"] = nil
 	}
 
 	for testfile, wantImports := range testfiles {
@@ -157,6 +147,11 @@ func TestImportTestdata(t *testing.T) {
 }
 
 func TestImportTypeparamTests(t *testing.T) {
+	// This test doesn't yet work with the unified export format.
+	if goexperiment.Unified {
+		t.Skip("unified export data format is currently unsupported")
+	}
+
 	// This package only handles gc export data.
 	if runtime.Compiler != "gc" {
 		t.Skipf("gc-built packages not available (compiler = %s)", runtime.Compiler)
@@ -167,7 +162,7 @@ func TestImportTypeparamTests(t *testing.T) {
 
 	// Check go files in test/typeparam, except those that fail for a known
 	// reason.
-	rootDir := filepath.Join(testenv.GOROOT(t), "test", "typeparam")
+	rootDir := filepath.Join(runtime.GOROOT(), "test", "typeparam")
 	list, err := os.ReadDir(rootDir)
 	if err != nil {
 		t.Fatal(err)
@@ -459,14 +454,6 @@ func verifyInterfaceMethodRecvs(t *testing.T, named *types.Named, level int) {
 		return // not an interface
 	}
 
-	// The unified IR importer always sets interface method receiver
-	// parameters to point to the Interface type, rather than the Named.
-	// See #49906.
-	var want types.Type = named
-	if goexperiment.Unified {
-		want = iface
-	}
-
 	// check explicitly declared methods
 	for i := 0; i < iface.NumExplicitMethods(); i++ {
 		m := iface.ExplicitMethod(i)
@@ -475,8 +462,8 @@ func verifyInterfaceMethodRecvs(t *testing.T, named *types.Named, level int) {
 			t.Errorf("%s: missing receiver type", m)
 			continue
 		}
-		if recv.Type() != want {
-			t.Errorf("%s: got recv type %s; want %s", m, recv.Type(), want)
+		if recv.Type() != named {
+			t.Errorf("%s: got recv type %s; want %s", m, recv.Type(), named)
 		}
 	}
 

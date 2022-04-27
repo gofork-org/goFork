@@ -5,10 +5,9 @@
 package main
 
 import (
+	"./mysync"
 	"log"
 	"runtime"
-
-	"./mysync"
 )
 
 func main() {
@@ -24,8 +23,8 @@ func main() {
 		}
 	}
 	expecting := []string{
-		"test/mysync.(*WaitGroup).Add",
-		"test/mysync.(*WaitGroup).Done",
+		"mysync.(*WaitGroup).Add",
+		"mysync.(*WaitGroup).Done",
 	}
 	for i := 0; i < 2; i++ {
 		if frames[i].Function != expecting[i] {

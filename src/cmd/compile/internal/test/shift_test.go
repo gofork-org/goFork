@@ -1029,13 +1029,3 @@ func TestShiftGeneric(t *testing.T) {
 		}
 	}
 }
-
-var shiftSink64 int64
-
-func BenchmarkShiftArithmeticRight(b *testing.B) {
-	x := shiftSink64
-	for i := 0; i < b.N; i++ {
-		x = x >> (i & 63)
-	}
-	shiftSink64 = x
-}

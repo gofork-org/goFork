@@ -63,9 +63,6 @@ func (d *Data) parseUnits() ([]unit, error) {
 		u := &units[i]
 		u.base = b.off
 		var n Offset
-		if b.err != nil {
-			return nil, b.err
-		}
 		for n == 0 {
 			n, u.is64 = b.unitLength()
 		}

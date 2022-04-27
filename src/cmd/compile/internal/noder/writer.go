@@ -8,7 +8,7 @@ package noder
 
 import (
 	"fmt"
-	"internal/pkgbits"
+	"go/constant"
 
 	"cmd/compile/internal/base"
 	"cmd/compile/internal/ir"
@@ -17,7 +17,7 @@ import (
 )
 
 type pkgWriter struct {
-	pkgbits.PkgEncoder
+	pkgEncoder
 
 	m      posMap
 	curpkg *types2.Package
@@ -33,11 +33,13 @@ type pkgWriter struct {
 
 	linknames  map[types2.Object]string
 	cgoPragmas [][]string
+
+	dups dupTypes
 }
 
 func newPkgWriter(m posMap, pkg *types2.Package, info *types2.Info) *pkgWriter {
 	return &pkgWriter{
-		PkgEncoder: pkgbits.NewPkgEncoder(base.Debug.SyncFrames),
+		pkgEncoder: newPkgEncoder(),
 
 		m:      m,
 		curpkg: pkg,
@@ -71,7 +73,7 @@ func (pw *pkgWriter) unexpected(what string, p poser) {
 type writer struct {
 	p *pkgWriter
 
-	pkgbits.Encoder
+	encoder
 
 	// TODO(mdempsky): We should be able to prune localsIdx whenever a
 	// scope closes, and then maybe we can just use the same map for
@@ -103,10 +105,6 @@ type writerDict struct {
 	// instantiated with derived types (i.e., that require
 	// sub-dictionaries when called at run time).
 	funcs []objInfo
-
-	// itabs lists itabs that are needed for dynamic type assertions
-	// (including type switches).
-	itabs []itabInfo
 }
 
 type derivedInfo struct {
@@ -122,11 +120,6 @@ type typeInfo struct {
 type objInfo struct {
 	idx       int        // index for the generic function declaration
 	explicits []typeInfo // info for the type arguments
-}
-
-type itabInfo struct {
-	typIdx int      // always a derived type index
-	iface  typeInfo // always a non-empty interface type
 }
 
 func (info objInfo) anyDerived() bool {
@@ -151,9 +144,9 @@ func (info objInfo) equals(other objInfo) bool {
 	return true
 }
 
-func (pw *pkgWriter) newWriter(k pkgbits.RelocKind, marker pkgbits.SyncMarker) *writer {
+func (pw *pkgWriter) newWriter(k reloc, marker syncMarker) *writer {
 	return &writer{
-		Encoder: pw.NewEncoder(k, marker),
+		encoder: pw.newEncoder(k, marker),
 		p:       pw,
 	}
 }
@@ -161,23 +154,23 @@ func (pw *pkgWriter) newWriter(k pkgbits.RelocKind, marker pkgbits.SyncMarker) *
 // @@@ Positions
 
 func (w *writer) pos(p poser) {
-	w.Sync(pkgbits.SyncPos)
+	w.sync(syncPos)
 	pos := p.Pos()
 
 	// TODO(mdempsky): Track down the remaining cases here and fix them.
-	if !w.Bool(pos.IsKnown()) {
+	if !w.bool(pos.IsKnown()) {
 		return
 	}
 
 	// TODO(mdempsky): Delta encoding. Also, if there's a b-side, update
 	// its position base too (but not vice versa!).
 	w.posBase(pos.Base())
-	w.Uint(pos.Line())
-	w.Uint(pos.Col())
+	w.uint(pos.Line())
+	w.uint(pos.Col())
 }
 
 func (w *writer) posBase(b *syntax.PosBase) {
-	w.Reloc(pkgbits.RelocPosBase, w.p.posBaseIdx(b))
+	w.reloc(relocPosBase, w.p.posBaseIdx(b))
 }
 
 func (pw *pkgWriter) posBaseIdx(b *syntax.PosBase) int {
@@ -185,25 +178,25 @@ func (pw *pkgWriter) posBaseIdx(b *syntax.PosBase) int {
 		return idx
 	}
 
-	w := pw.newWriter(pkgbits.RelocPosBase, pkgbits.SyncPosBase)
-	w.p.posBasesIdx[b] = w.Idx
+	w := pw.newWriter(relocPosBase, syncPosBase)
+	w.p.posBasesIdx[b] = w.idx
 
-	w.String(trimFilename(b))
+	w.string(trimFilename(b))
 
-	if !w.Bool(b.IsFileBase()) {
+	if !w.bool(b.IsFileBase()) {
 		w.pos(b)
-		w.Uint(b.Line())
-		w.Uint(b.Col())
+		w.uint(b.Line())
+		w.uint(b.Col())
 	}
 
-	return w.Flush()
+	return w.flush()
 }
 
 // @@@ Packages
 
 func (w *writer) pkg(pkg *types2.Package) {
-	w.Sync(pkgbits.SyncPkg)
-	w.Reloc(pkgbits.RelocPkg, w.p.pkgIdx(pkg))
+	w.sync(syncPkg)
+	w.reloc(relocPkg, w.p.pkgIdx(pkg))
 }
 
 func (pw *pkgWriter) pkgIdx(pkg *types2.Package) int {
@@ -211,27 +204,27 @@ func (pw *pkgWriter) pkgIdx(pkg *types2.Package) int {
 		return idx
 	}
 
-	w := pw.newWriter(pkgbits.RelocPkg, pkgbits.SyncPkgDef)
-	pw.pkgsIdx[pkg] = w.Idx
+	w := pw.newWriter(relocPkg, syncPkgDef)
+	pw.pkgsIdx[pkg] = w.idx
 
 	if pkg == nil {
-		w.String("builtin")
+		w.string("builtin")
 	} else {
 		var path string
 		if pkg != w.p.curpkg {
 			path = pkg.Path()
 		}
-		w.String(path)
-		w.String(pkg.Name())
-		w.Len(pkg.Height())
+		w.string(path)
+		w.string(pkg.Name())
+		w.len(pkg.Height())
 
-		w.Len(len(pkg.Imports()))
+		w.len(len(pkg.Imports()))
 		for _, imp := range pkg.Imports() {
 			w.pkg(imp)
 		}
 	}
 
-	return w.Flush()
+	return w.flush()
 }
 
 // @@@ Types
@@ -243,12 +236,12 @@ func (w *writer) typ(typ types2.Type) {
 }
 
 func (w *writer) typInfo(info typeInfo) {
-	w.Sync(pkgbits.SyncType)
-	if w.Bool(info.derived) {
-		w.Len(info.idx)
+	w.sync(syncType)
+	if w.bool(info.derived) {
+		w.len(info.idx)
 		w.derived = true
 	} else {
-		w.Reloc(pkgbits.RelocType, info.idx)
+		w.reloc(relocType, info.idx)
 	}
 }
 
@@ -258,6 +251,10 @@ func (w *writer) typInfo(info typeInfo) {
 // typIdx also reports whether typ is a derived type; that is, whether
 // its identity depends on type parameters.
 func (pw *pkgWriter) typIdx(typ types2.Type, dict *writerDict) typeInfo {
+	if quirksMode() {
+		typ = pw.dups.orig(typ)
+	}
+
 	if idx, ok := pw.typsIdx[typ]; ok {
 		return typeInfo{idx: idx, derived: false}
 	}
@@ -267,7 +264,7 @@ func (pw *pkgWriter) typIdx(typ types2.Type, dict *writerDict) typeInfo {
 		}
 	}
 
-	w := pw.newWriter(pkgbits.RelocType, pkgbits.SyncTypeIdx)
+	w := pw.newWriter(relocType, syncTypeIdx)
 	w.dict = dict
 
 	switch typ := typ.(type) {
@@ -280,20 +277,23 @@ func (pw *pkgWriter) typIdx(typ types2.Type, dict *writerDict) typeInfo {
 			base.Fatalf("unexpected types2.Invalid")
 
 		case types2.Typ[kind] == typ:
-			w.Code(pkgbits.TypeBasic)
-			w.Len(int(kind))
+			w.code(typeBasic)
+			w.len(int(kind))
 
 		default:
 			// Handle "byte" and "rune" as references to their TypeName.
 			obj := types2.Universe.Lookup(typ.Name())
 			assert(obj.Type() == typ)
 
-			w.Code(pkgbits.TypeNamed)
+			w.code(typeNamed)
 			w.obj(obj, nil)
 		}
 
 	case *types2.Named:
-		assert(typ.TypeParams().Len() == typ.TypeArgs().Len())
+		// Type aliases can refer to uninstantiated generic types, so we
+		// might see len(TParams) != 0 && len(TArgs) == 0 here.
+		// TODO(mdempsky): Revisit after #46477 is resolved.
+		assert(typ.TypeParams().Len() == typ.TypeArgs().Len() || typ.TypeArgs().Len() == 0)
 
 		// TODO(mdempsky): Why do we need to loop here?
 		orig := typ
@@ -301,7 +301,7 @@ func (pw *pkgWriter) typIdx(typ types2.Type, dict *writerDict) typeInfo {
 			orig = orig.Origin()
 		}
 
-		w.Code(pkgbits.TypeNamed)
+		w.code(typeNamed)
 		w.obj(orig.Obj(), typ.TypeArgs())
 
 	case *types2.TypeParam:
@@ -316,100 +316,91 @@ func (pw *pkgWriter) typIdx(typ types2.Type, dict *writerDict) typeInfo {
 		}()
 
 		w.derived = true
-		w.Code(pkgbits.TypeTypeParam)
-		w.Len(index)
+		w.code(typeTypeParam)
+		w.len(index)
 
 	case *types2.Array:
-		w.Code(pkgbits.TypeArray)
-		w.Uint64(uint64(typ.Len()))
+		w.code(typeArray)
+		w.uint64(uint64(typ.Len()))
 		w.typ(typ.Elem())
 
 	case *types2.Chan:
-		w.Code(pkgbits.TypeChan)
-		w.Len(int(typ.Dir()))
+		w.code(typeChan)
+		w.len(int(typ.Dir()))
 		w.typ(typ.Elem())
 
 	case *types2.Map:
-		w.Code(pkgbits.TypeMap)
+		w.code(typeMap)
 		w.typ(typ.Key())
 		w.typ(typ.Elem())
 
 	case *types2.Pointer:
-		w.Code(pkgbits.TypePointer)
+		w.code(typePointer)
 		w.typ(typ.Elem())
 
 	case *types2.Signature:
 		base.Assertf(typ.TypeParams() == nil, "unexpected type params: %v", typ)
-		w.Code(pkgbits.TypeSignature)
+		w.code(typeSignature)
 		w.signature(typ)
 
 	case *types2.Slice:
-		w.Code(pkgbits.TypeSlice)
+		w.code(typeSlice)
 		w.typ(typ.Elem())
 
 	case *types2.Struct:
-		w.Code(pkgbits.TypeStruct)
+		w.code(typeStruct)
 		w.structType(typ)
 
 	case *types2.Interface:
 		if typ == anyTypeName.Type() {
-			w.Code(pkgbits.TypeNamed)
+			w.code(typeNamed)
 			w.obj(anyTypeName, nil)
 			break
 		}
 
-		w.Code(pkgbits.TypeInterface)
+		w.code(typeInterface)
 		w.interfaceType(typ)
 
 	case *types2.Union:
-		w.Code(pkgbits.TypeUnion)
+		w.code(typeUnion)
 		w.unionType(typ)
 	}
 
 	if w.derived {
 		idx := len(dict.derived)
-		dict.derived = append(dict.derived, derivedInfo{idx: w.Flush()})
+		dict.derived = append(dict.derived, derivedInfo{idx: w.flush()})
 		dict.derivedIdx[typ] = idx
 		return typeInfo{idx: idx, derived: true}
 	}
 
-	pw.typsIdx[typ] = w.Idx
-	return typeInfo{idx: w.Flush(), derived: false}
+	pw.typsIdx[typ] = w.idx
+	return typeInfo{idx: w.flush(), derived: false}
 }
 
 func (w *writer) structType(typ *types2.Struct) {
-	w.Len(typ.NumFields())
+	w.len(typ.NumFields())
 	for i := 0; i < typ.NumFields(); i++ {
 		f := typ.Field(i)
 		w.pos(f)
 		w.selector(f)
 		w.typ(f.Type())
-		w.String(typ.Tag(i))
-		w.Bool(f.Embedded())
+		w.string(typ.Tag(i))
+		w.bool(f.Embedded())
 	}
 }
 
 func (w *writer) unionType(typ *types2.Union) {
-	w.Len(typ.Len())
+	w.len(typ.Len())
 	for i := 0; i < typ.Len(); i++ {
 		t := typ.Term(i)
-		w.Bool(t.Tilde())
+		w.bool(t.Tilde())
 		w.typ(t.Type())
 	}
 }
 
 func (w *writer) interfaceType(typ *types2.Interface) {
-	w.Len(typ.NumExplicitMethods())
-	w.Len(typ.NumEmbeddeds())
-
-	if typ.NumExplicitMethods() == 0 && typ.NumEmbeddeds() == 1 {
-		w.Bool(typ.IsImplicit())
-	} else {
-		// Implicit interfaces always have 0 explicit methods and 1
-		// embedded type, so we skip writing out the implicit flag
-		// otherwise as a space optimization.
-		assert(!typ.IsImplicit())
-	}
+	w.len(typ.NumExplicitMethods())
+	w.len(typ.NumEmbeddeds())
 
 	for i := 0; i < typ.NumExplicitMethods(); i++ {
 		m := typ.ExplicitMethod(i)
@@ -427,22 +418,22 @@ func (w *writer) interfaceType(typ *types2.Interface) {
 }
 
 func (w *writer) signature(sig *types2.Signature) {
-	w.Sync(pkgbits.SyncSignature)
+	w.sync(syncSignature)
 	w.params(sig.Params())
 	w.params(sig.Results())
-	w.Bool(sig.Variadic())
+	w.bool(sig.Variadic())
 }
 
 func (w *writer) params(typ *types2.Tuple) {
-	w.Sync(pkgbits.SyncParams)
-	w.Len(typ.Len())
+	w.sync(syncParams)
+	w.len(typ.Len())
 	for i := 0; i < typ.Len(); i++ {
 		w.param(typ.At(i))
 	}
 }
 
 func (w *writer) param(param *types2.Var) {
-	w.Sync(pkgbits.SyncParam)
+	w.sync(syncParam)
 	w.pos(param)
 	w.localIdent(param)
 	w.typ(param.Type())
@@ -471,9 +462,9 @@ func (w *writer) obj(obj types2.Object, explicits *types2.TypeList) {
 
 		// TODO(mdempsky): Push up into expr; this shouldn't appear
 		// outside of expression context.
-		w.Sync(pkgbits.SyncObject)
-		w.Bool(true)
-		w.Len(idx)
+		w.sync(syncObject)
+		w.bool(true)
+		w.len(idx)
 		return
 	}
 
@@ -487,11 +478,11 @@ func (w *writer) obj(obj types2.Object, explicits *types2.TypeList) {
 		}
 	}
 
-	w.Sync(pkgbits.SyncObject)
-	w.Bool(false)
-	w.Reloc(pkgbits.RelocObj, info.idx)
+	w.sync(syncObject)
+	w.bool(false)
+	w.reloc(relocObj, info.idx)
 
-	w.Len(len(info.explicits))
+	w.len(len(info.explicits))
 	for _, info := range info.explicits {
 		w.typInfo(info)
 	}
@@ -512,36 +503,36 @@ func (pw *pkgWriter) objIdx(obj types2.Object) int {
 		dict.implicits = decl.implicits
 	}
 
-	w := pw.newWriter(pkgbits.RelocObj, pkgbits.SyncObject1)
-	wext := pw.newWriter(pkgbits.RelocObjExt, pkgbits.SyncObject1)
-	wname := pw.newWriter(pkgbits.RelocName, pkgbits.SyncObject1)
-	wdict := pw.newWriter(pkgbits.RelocObjDict, pkgbits.SyncObject1)
+	w := pw.newWriter(relocObj, syncObject1)
+	wext := pw.newWriter(relocObjExt, syncObject1)
+	wname := pw.newWriter(relocName, syncObject1)
+	wdict := pw.newWriter(relocObjDict, syncObject1)
 
-	pw.globalsIdx[obj] = w.Idx // break cycles
-	assert(wext.Idx == w.Idx)
-	assert(wname.Idx == w.Idx)
-	assert(wdict.Idx == w.Idx)
+	pw.globalsIdx[obj] = w.idx // break cycles
+	assert(wext.idx == w.idx)
+	assert(wname.idx == w.idx)
+	assert(wdict.idx == w.idx)
 
 	w.dict = dict
 	wext.dict = dict
 
 	code := w.doObj(wext, obj)
-	w.Flush()
-	wext.Flush()
+	w.flush()
+	wext.flush()
 
 	wname.qualifiedIdent(obj)
-	wname.Code(code)
-	wname.Flush()
+	wname.code(code)
+	wname.flush()
 
 	wdict.objDict(obj, w.dict)
-	wdict.Flush()
+	wdict.flush()
 
-	return w.Idx
+	return w.idx
 }
 
-func (w *writer) doObj(wext *writer, obj types2.Object) pkgbits.CodeObj {
+func (w *writer) doObj(wext *writer, obj types2.Object) codeObj {
 	if obj.Pkg() != w.p.curpkg {
-		return pkgbits.ObjStub
+		return objStub
 	}
 
 	switch obj := obj.(type) {
@@ -552,8 +543,8 @@ func (w *writer) doObj(wext *writer, obj types2.Object) pkgbits.CodeObj {
 	case *types2.Const:
 		w.pos(obj)
 		w.typ(obj.Type())
-		w.Value(obj.Val())
-		return pkgbits.ObjConst
+		w.value(obj.Val())
+		return objConst
 
 	case *types2.Func:
 		decl, ok := w.p.funDecls[obj]
@@ -565,7 +556,7 @@ func (w *writer) doObj(wext *writer, obj types2.Object) pkgbits.CodeObj {
 		w.signature(sig)
 		w.pos(decl)
 		wext.funcExt(obj)
-		return pkgbits.ObjFunc
+		return objFunc
 
 	case *types2.TypeName:
 		decl, ok := w.p.typDecls[obj]
@@ -574,7 +565,7 @@ func (w *writer) doObj(wext *writer, obj types2.Object) pkgbits.CodeObj {
 		if obj.IsAlias() {
 			w.pos(obj)
 			w.typ(obj.Type())
-			return pkgbits.ObjAlias
+			return objAlias
 		}
 
 		named := obj.Type().(*types2.Named)
@@ -585,18 +576,18 @@ func (w *writer) doObj(wext *writer, obj types2.Object) pkgbits.CodeObj {
 		wext.typeExt(obj)
 		w.typExpr(decl.Type)
 
-		w.Len(named.NumMethods())
+		w.len(named.NumMethods())
 		for i := 0; i < named.NumMethods(); i++ {
 			w.method(wext, named.Method(i))
 		}
 
-		return pkgbits.ObjType
+		return objType
 
 	case *types2.Var:
 		w.pos(obj)
 		w.typ(obj.Type())
 		wext.varExt(obj)
-		return pkgbits.ObjVar
+		return objVar
 	}
 }
 
@@ -616,37 +607,30 @@ func (w *writer) objDict(obj types2.Object, dict *writerDict) {
 
 	w.dict = dict // TODO(mdempsky): This is a bit sketchy.
 
-	w.Len(len(dict.implicits))
+	w.len(len(dict.implicits))
 
 	tparams := objTypeParams(obj)
 	ntparams := tparams.Len()
-	w.Len(ntparams)
+	w.len(ntparams)
 	for i := 0; i < ntparams; i++ {
 		w.typ(tparams.At(i).Constraint())
 	}
 
 	nderived := len(dict.derived)
-	w.Len(nderived)
+	w.len(nderived)
 	for _, typ := range dict.derived {
-		w.Reloc(pkgbits.RelocType, typ.idx)
-		w.Bool(typ.needed)
+		w.reloc(relocType, typ.idx)
+		w.bool(typ.needed)
 	}
 
 	nfuncs := len(dict.funcs)
-	w.Len(nfuncs)
+	w.len(nfuncs)
 	for _, fn := range dict.funcs {
-		w.Reloc(pkgbits.RelocObj, fn.idx)
-		w.Len(len(fn.explicits))
+		w.reloc(relocObj, fn.idx)
+		w.len(len(fn.explicits))
 		for _, targ := range fn.explicits {
 			w.typInfo(targ)
 		}
-	}
-
-	nitabs := len(dict.itabs)
-	w.Len(nitabs)
-	for _, itab := range dict.itabs {
-		w.Len(itab.typIdx)
-		w.typInfo(itab.iface)
 	}
 
 	assert(len(dict.derived) == nderived)
@@ -654,7 +638,7 @@ func (w *writer) objDict(obj types2.Object, dict *writerDict) {
 }
 
 func (w *writer) typeParamNames(tparams *types2.TypeParamList) {
-	w.Sync(pkgbits.SyncTypeParamNames)
+	w.sync(syncTypeParamNames)
 
 	ntparams := tparams.Len()
 	for i := 0; i < ntparams; i++ {
@@ -669,7 +653,7 @@ func (w *writer) method(wext *writer, meth *types2.Func) {
 	assert(ok)
 	sig := meth.Type().(*types2.Signature)
 
-	w.Sync(pkgbits.SyncMethod)
+	w.sync(syncMethod)
 	w.pos(meth)
 	w.selector(meth)
 	w.typeParamNames(sig.RecvTypeParams())
@@ -683,7 +667,7 @@ func (w *writer) method(wext *writer, meth *types2.Func) {
 // qualifiedIdent writes out the name of an object declared at package
 // scope. (For now, it's also used to refer to local defined types.)
 func (w *writer) qualifiedIdent(obj types2.Object) {
-	w.Sync(pkgbits.SyncSym)
+	w.sync(syncSym)
 
 	name := obj.Name()
 	if isDefinedType(obj) && obj.Pkg() == w.p.curpkg {
@@ -697,7 +681,7 @@ func (w *writer) qualifiedIdent(obj types2.Object) {
 	}
 
 	w.pkg(obj.Pkg())
-	w.String(name)
+	w.string(name)
 }
 
 // TODO(mdempsky): We should be able to omit pkg from both localIdent
@@ -710,17 +694,17 @@ func (w *writer) qualifiedIdent(obj types2.Object) {
 // particular function).
 func (w *writer) localIdent(obj types2.Object) {
 	assert(!isGlobal(obj))
-	w.Sync(pkgbits.SyncLocalIdent)
+	w.sync(syncLocalIdent)
 	w.pkg(obj.Pkg())
-	w.String(obj.Name())
+	w.string(obj.Name())
 }
 
 // selector writes the name of a field or method (i.e., objects that
 // can only be accessed using selector expressions).
 func (w *writer) selector(obj types2.Object) {
-	w.Sync(pkgbits.SyncSelector)
+	w.sync(syncSelector)
 	w.pkg(obj.Pkg())
-	w.String(obj.Name())
+	w.string(obj.Name())
 }
 
 // @@@ Compiler extensions
@@ -742,22 +726,6 @@ func (w *writer) funcExt(obj *types2.Func) {
 		if pragma&ir.Noescape != 0 {
 			w.p.errorf(decl, "can only use //go:noescape with external func implementations")
 		}
-		if (pragma&ir.UintptrKeepAlive != 0 && pragma&ir.UintptrEscapes == 0) && pragma&ir.Nosplit == 0 {
-			// Stack growth can't handle uintptr arguments that may
-			// be pointers (as we don't know which are pointers
-			// when creating the stack map). Thus uintptrkeepalive
-			// functions (and all transitive callees) must be
-			// nosplit.
-			//
-			// N.B. uintptrescapes implies uintptrkeepalive but it
-			// is OK since the arguments must escape to the heap.
-			//
-			// TODO(prattmic): Add recursive nosplit check of callees.
-			// TODO(prattmic): Functions with no body (i.e.,
-			// assembly) must also be nosplit, but we can't check
-			// that here.
-			w.p.errorf(decl, "go:uintptrkeepalive requires go:nosplit")
-		}
 	} else {
 		if base.Flag.Complete || decl.Name.Value == "init" {
 			// Linknamed functions are allowed to have no body. Hopefully
@@ -772,56 +740,56 @@ func (w *writer) funcExt(obj *types2.Func) {
 	body, closureVars := w.p.bodyIdx(w.p.curpkg, sig, block, w.dict)
 	assert(len(closureVars) == 0)
 
-	w.Sync(pkgbits.SyncFuncExt)
+	w.sync(syncFuncExt)
 	w.pragmaFlag(pragma)
 	w.linkname(obj)
-	w.Bool(false) // stub extension
-	w.Reloc(pkgbits.RelocBody, body)
-	w.Sync(pkgbits.SyncEOF)
+	w.bool(false) // stub extension
+	w.reloc(relocBody, body)
+	w.sync(syncEOF)
 }
 
 func (w *writer) typeExt(obj *types2.TypeName) {
 	decl, ok := w.p.typDecls[obj]
 	assert(ok)
 
-	w.Sync(pkgbits.SyncTypeExt)
+	w.sync(syncTypeExt)
 
 	w.pragmaFlag(asPragmaFlag(decl.Pragma))
 
 	// No LSym.SymIdx info yet.
-	w.Int64(-1)
-	w.Int64(-1)
+	w.int64(-1)
+	w.int64(-1)
 }
 
 func (w *writer) varExt(obj *types2.Var) {
-	w.Sync(pkgbits.SyncVarExt)
+	w.sync(syncVarExt)
 	w.linkname(obj)
 }
 
 func (w *writer) linkname(obj types2.Object) {
-	w.Sync(pkgbits.SyncLinkname)
-	w.Int64(-1)
-	w.String(w.p.linknames[obj])
+	w.sync(syncLinkname)
+	w.int64(-1)
+	w.string(w.p.linknames[obj])
 }
 
 func (w *writer) pragmaFlag(p ir.PragmaFlag) {
-	w.Sync(pkgbits.SyncPragma)
-	w.Int(int(p))
+	w.sync(syncPragma)
+	w.int(int(p))
 }
 
 // @@@ Function bodies
 
 func (pw *pkgWriter) bodyIdx(pkg *types2.Package, sig *types2.Signature, block *syntax.BlockStmt, dict *writerDict) (idx int, closureVars []posObj) {
-	w := pw.newWriter(pkgbits.RelocBody, pkgbits.SyncFuncBody)
+	w := pw.newWriter(relocBody, syncFuncBody)
 	w.dict = dict
 
 	w.funcargs(sig)
-	if w.Bool(block != nil) {
+	if w.bool(block != nil) {
 		w.stmts(block.List)
 		w.pos(block.Rbrace)
 	}
 
-	return w.Flush(), w.closureVars
+	return w.flush(), w.closureVars
 }
 
 func (w *writer) funcargs(sig *types2.Signature) {
@@ -845,10 +813,10 @@ func (w *writer) funcarg(param *types2.Var, result bool) {
 }
 
 func (w *writer) addLocal(obj *types2.Var) {
-	w.Sync(pkgbits.SyncAddLocal)
+	w.sync(syncAddLocal)
 	idx := len(w.localsIdx)
-	if pkgbits.EnableSync {
-		w.Int(idx)
+	if enableSync {
+		w.int(idx)
 	}
 	if w.localsIdx == nil {
 		w.localsIdx = make(map[*types2.Var]int)
@@ -857,10 +825,10 @@ func (w *writer) addLocal(obj *types2.Var) {
 }
 
 func (w *writer) useLocal(pos syntax.Pos, obj *types2.Var) {
-	w.Sync(pkgbits.SyncUseObjLocal)
+	w.sync(syncUseObjLocal)
 
-	if idx, ok := w.localsIdx[obj]; w.Bool(ok) {
-		w.Len(idx)
+	if idx, ok := w.localsIdx[obj]; w.bool(ok) {
+		w.len(idx)
 		return
 	}
 
@@ -873,22 +841,22 @@ func (w *writer) useLocal(pos syntax.Pos, obj *types2.Var) {
 		w.closureVars = append(w.closureVars, posObj{pos, obj})
 		w.closureVarsIdx[obj] = idx
 	}
-	w.Len(idx)
+	w.len(idx)
 }
 
 func (w *writer) openScope(pos syntax.Pos) {
-	w.Sync(pkgbits.SyncOpenScope)
+	w.sync(syncOpenScope)
 	w.pos(pos)
 }
 
 func (w *writer) closeScope(pos syntax.Pos) {
-	w.Sync(pkgbits.SyncCloseScope)
+	w.sync(syncCloseScope)
 	w.pos(pos)
 	w.closeAnotherScope()
 }
 
 func (w *writer) closeAnotherScope() {
-	w.Sync(pkgbits.SyncCloseAnotherScope)
+	w.sync(syncCloseAnotherScope)
 }
 
 // @@@ Statements
@@ -902,12 +870,12 @@ func (w *writer) stmt(stmt syntax.Stmt) {
 }
 
 func (w *writer) stmts(stmts []syntax.Stmt) {
-	w.Sync(pkgbits.SyncStmts)
+	w.sync(syncStmts)
 	for _, stmt := range stmts {
 		w.stmt1(stmt)
 	}
-	w.Code(stmtEnd)
-	w.Sync(pkgbits.SyncStmtsEnd)
+	w.code(stmtEnd)
+	w.sync(syncStmtsEnd)
 }
 
 func (w *writer) stmt1(stmt syntax.Stmt) {
@@ -921,37 +889,37 @@ func (w *writer) stmt1(stmt syntax.Stmt) {
 	case *syntax.AssignStmt:
 		switch {
 		case stmt.Rhs == nil:
-			w.Code(stmtIncDec)
+			w.code(stmtIncDec)
 			w.op(binOps[stmt.Op])
 			w.expr(stmt.Lhs)
 			w.pos(stmt)
 
 		case stmt.Op != 0 && stmt.Op != syntax.Def:
-			w.Code(stmtAssignOp)
+			w.code(stmtAssignOp)
 			w.op(binOps[stmt.Op])
 			w.expr(stmt.Lhs)
 			w.pos(stmt)
 			w.expr(stmt.Rhs)
 
 		default:
-			w.Code(stmtAssign)
+			w.code(stmtAssign)
 			w.pos(stmt)
 			w.exprList(stmt.Rhs)
 			w.assignList(stmt.Lhs)
 		}
 
 	case *syntax.BlockStmt:
-		w.Code(stmtBlock)
+		w.code(stmtBlock)
 		w.blockStmt(stmt)
 
 	case *syntax.BranchStmt:
-		w.Code(stmtBranch)
+		w.code(stmtBranch)
 		w.pos(stmt)
 		w.op(branchOps[stmt.Tok])
 		w.optLabel(stmt.Label)
 
 	case *syntax.CallStmt:
-		w.Code(stmtCall)
+		w.code(stmtCall)
 		w.pos(stmt)
 		w.op(callOps[stmt.Tok])
 		w.expr(stmt.Call)
@@ -962,54 +930,54 @@ func (w *writer) stmt1(stmt syntax.Stmt) {
 		}
 
 	case *syntax.ExprStmt:
-		w.Code(stmtExpr)
+		w.code(stmtExpr)
 		w.expr(stmt.X)
 
 	case *syntax.ForStmt:
-		w.Code(stmtFor)
+		w.code(stmtFor)
 		w.forStmt(stmt)
 
 	case *syntax.IfStmt:
-		w.Code(stmtIf)
+		w.code(stmtIf)
 		w.ifStmt(stmt)
 
 	case *syntax.LabeledStmt:
-		w.Code(stmtLabel)
+		w.code(stmtLabel)
 		w.pos(stmt)
 		w.label(stmt.Label)
 		w.stmt1(stmt.Stmt)
 
 	case *syntax.ReturnStmt:
-		w.Code(stmtReturn)
+		w.code(stmtReturn)
 		w.pos(stmt)
 		w.exprList(stmt.Results)
 
 	case *syntax.SelectStmt:
-		w.Code(stmtSelect)
+		w.code(stmtSelect)
 		w.selectStmt(stmt)
 
 	case *syntax.SendStmt:
-		w.Code(stmtSend)
+		w.code(stmtSend)
 		w.pos(stmt)
 		w.expr(stmt.Chan)
 		w.expr(stmt.Value)
 
 	case *syntax.SwitchStmt:
-		w.Code(stmtSwitch)
+		w.code(stmtSwitch)
 		w.switchStmt(stmt)
 	}
 }
 
 func (w *writer) assignList(expr syntax.Expr) {
 	exprs := unpackListExpr(expr)
-	w.Len(len(exprs))
+	w.len(len(exprs))
 
 	for _, expr := range exprs {
 		if name, ok := expr.(*syntax.Name); ok && name.Value != "_" {
 			if obj, ok := w.p.info.Defs[name]; ok {
 				obj := obj.(*types2.Var)
 
-				w.Bool(true)
+				w.bool(true)
 				w.pos(obj)
 				w.localIdent(obj)
 				w.typ(obj.Type())
@@ -1021,7 +989,7 @@ func (w *writer) assignList(expr syntax.Expr) {
 			}
 		}
 
-		w.Bool(false)
+		w.bool(false)
 		w.expr(expr)
 	}
 }
@@ -1031,10 +999,37 @@ func (w *writer) declStmt(decl syntax.Decl) {
 	default:
 		w.p.unexpected("declaration", decl)
 
-	case *syntax.ConstDecl, *syntax.TypeDecl:
+	case *syntax.ConstDecl:
+
+	case *syntax.TypeDecl:
+		// Quirk: The legacy inliner doesn't support inlining functions
+		// with type declarations. Unified IR doesn't have any need to
+		// write out type declarations explicitly (they're always looked
+		// up via global index tables instead), so we just write out a
+		// marker so the reader knows to synthesize a fake declaration to
+		// prevent inlining.
+		if quirksMode() {
+			w.code(stmtTypeDeclHack)
+		}
 
 	case *syntax.VarDecl:
-		w.Code(stmtAssign)
+		values := unpackListExpr(decl.Values)
+
+		// Quirk: When N variables are declared with N initialization
+		// values, we need to decompose that into N interleaved
+		// declarations+initializations, because it leads to different
+		// (albeit semantically equivalent) code generation.
+		if quirksMode() && len(decl.NameList) == len(values) {
+			for i, name := range decl.NameList {
+				w.code(stmtAssign)
+				w.pos(decl)
+				w.exprList(values[i])
+				w.assignList(name)
+			}
+			break
+		}
+
+		w.code(stmtAssign)
 		w.pos(decl)
 		w.exprList(decl.Values)
 		w.assignList(namesAsExpr(decl.NameList))
@@ -1042,17 +1037,17 @@ func (w *writer) declStmt(decl syntax.Decl) {
 }
 
 func (w *writer) blockStmt(stmt *syntax.BlockStmt) {
-	w.Sync(pkgbits.SyncBlockStmt)
+	w.sync(syncBlockStmt)
 	w.openScope(stmt.Pos())
 	w.stmts(stmt.List)
 	w.closeScope(stmt.Rbrace)
 }
 
 func (w *writer) forStmt(stmt *syntax.ForStmt) {
-	w.Sync(pkgbits.SyncForStmt)
+	w.sync(syncForStmt)
 	w.openScope(stmt.Pos())
 
-	if rang, ok := stmt.Init.(*syntax.RangeClause); w.Bool(ok) {
+	if rang, ok := stmt.Init.(*syntax.RangeClause); w.bool(ok) {
 		w.pos(rang)
 		w.expr(rang.X)
 		w.assignList(rang.Lhs)
@@ -1068,7 +1063,7 @@ func (w *writer) forStmt(stmt *syntax.ForStmt) {
 }
 
 func (w *writer) ifStmt(stmt *syntax.IfStmt) {
-	w.Sync(pkgbits.SyncIfStmt)
+	w.sync(syncIfStmt)
 	w.openScope(stmt.Pos())
 	w.pos(stmt)
 	w.stmt(stmt.Init)
@@ -1079,10 +1074,10 @@ func (w *writer) ifStmt(stmt *syntax.IfStmt) {
 }
 
 func (w *writer) selectStmt(stmt *syntax.SelectStmt) {
-	w.Sync(pkgbits.SyncSelectStmt)
+	w.sync(syncSelectStmt)
 
 	w.pos(stmt)
-	w.Len(len(stmt.Body))
+	w.len(len(stmt.Body))
 	for i, clause := range stmt.Body {
 		if i > 0 {
 			w.closeScope(clause.Pos())
@@ -1099,29 +1094,24 @@ func (w *writer) selectStmt(stmt *syntax.SelectStmt) {
 }
 
 func (w *writer) switchStmt(stmt *syntax.SwitchStmt) {
-	w.Sync(pkgbits.SyncSwitchStmt)
+	w.sync(syncSwitchStmt)
 
 	w.openScope(stmt.Pos())
 	w.pos(stmt)
 	w.stmt(stmt.Init)
 
-	var iface types2.Type
-	if guard, ok := stmt.Tag.(*syntax.TypeSwitchGuard); w.Bool(ok) {
-		tv, ok := w.p.info.Types[guard.X]
-		assert(ok && tv.IsValue())
-		iface = tv.Type
-
+	if guard, ok := stmt.Tag.(*syntax.TypeSwitchGuard); w.bool(ok) {
 		w.pos(guard)
-		if tag := guard.Lhs; w.Bool(tag != nil) {
+		if tag := guard.Lhs; w.bool(tag != nil) {
 			w.pos(tag)
-			w.String(tag.Value)
+			w.string(tag.Value)
 		}
 		w.expr(guard.X)
 	} else {
 		w.expr(stmt.Tag)
 	}
 
-	w.Len(len(stmt.Body))
+	w.len(len(stmt.Body))
 	for i, clause := range stmt.Body {
 		if i > 0 {
 			w.closeScope(clause.Pos())
@@ -1129,16 +1119,7 @@ func (w *writer) switchStmt(stmt *syntax.SwitchStmt) {
 		w.openScope(clause.Pos())
 
 		w.pos(clause)
-
-		if iface != nil {
-			cases := unpackListExpr(clause.Cases)
-			w.Len(len(cases))
-			for _, cas := range cases {
-				w.exprType(iface, cas, true)
-			}
-		} else {
-			w.exprList(clause.Cases)
-		}
+		w.exprList(clause.Cases)
 
 		if obj, ok := w.p.info.Implicits[clause]; ok {
 			// TODO(mdempsky): These pos details are quirkish, but also
@@ -1167,15 +1148,15 @@ func (w *writer) switchStmt(stmt *syntax.SwitchStmt) {
 }
 
 func (w *writer) label(label *syntax.Name) {
-	w.Sync(pkgbits.SyncLabel)
+	w.sync(syncLabel)
 
 	// TODO(mdempsky): Replace label strings with dense indices.
-	w.String(label.Value)
+	w.string(label.Value)
 }
 
 func (w *writer) optLabel(label *syntax.Name) {
-	w.Sync(pkgbits.SyncOptLabel)
-	if w.Bool(label != nil) {
+	w.sync(syncOptLabel)
+	if w.bool(label != nil) {
 		w.label(label)
 	}
 }
@@ -1197,28 +1178,41 @@ func (w *writer) expr(expr syntax.Expr) {
 		}
 
 		if tv.IsType() {
-			w.Code(exprType)
-			w.exprType(nil, expr, false)
+			w.code(exprType)
+			w.typ(tv.Type)
 			return
 		}
 
 		if tv.Value != nil {
-			w.Code(exprConst)
-			w.pos(expr)
+			pos := expr.Pos()
+			if quirksMode() {
+				if obj != nil {
+					// Quirk: IR (and thus iexport) doesn't track position
+					// information for uses of declared objects.
+					pos = syntax.Pos{}
+				} else if tv.Value.Kind() == constant.String {
+					// Quirk: noder.sum picks a particular position for certain
+					// string concatenations.
+					pos = sumPos(expr)
+				}
+			}
+
+			w.code(exprConst)
+			w.pos(pos)
 			w.typ(tv.Type)
-			w.Value(tv.Value)
+			w.value(tv.Value)
 
 			// TODO(mdempsky): These details are only important for backend
 			// diagnostics. Explore writing them out separately.
 			w.op(constExprOp(expr))
-			w.String(syntax.String(expr))
+			w.string(syntax.String(expr))
 			return
 		}
 	}
 
 	if obj != nil {
 		if isGlobal(obj) {
-			w.Code(exprName)
+			w.code(exprName)
 			w.obj(obj, targs)
 			return
 		}
@@ -1227,7 +1221,7 @@ func (w *writer) expr(expr syntax.Expr) {
 		assert(!obj.IsField())
 		assert(targs.Len() == 0)
 
-		w.Code(exprLocal)
+		w.code(exprLocal)
 		w.useLocal(expr.Pos(), obj)
 		return
 	}
@@ -1237,25 +1231,25 @@ func (w *writer) expr(expr syntax.Expr) {
 		w.p.unexpected("expression", expr)
 
 	case nil: // absent slice index, for condition, or switch tag
-		w.Code(exprNone)
+		w.code(exprNone)
 
 	case *syntax.Name:
 		assert(expr.Value == "_")
-		w.Code(exprBlank)
+		w.code(exprBlank)
 
 	case *syntax.CompositeLit:
-		w.Code(exprCompLit)
+		w.code(exprCompLit)
 		w.compLit(expr)
 
 	case *syntax.FuncLit:
-		w.Code(exprFuncLit)
+		w.code(exprFuncLit)
 		w.funcLit(expr)
 
 	case *syntax.SelectorExpr:
 		sel, ok := w.p.info.Selections[expr]
 		assert(ok)
 
-		w.Code(exprSelector)
+		w.code(exprSelector)
 		w.expr(expr.X)
 		w.pos(expr)
 		w.selector(sel.Obj())
@@ -1264,13 +1258,13 @@ func (w *writer) expr(expr syntax.Expr) {
 		tv, ok := w.p.info.Types[expr.Index]
 		assert(ok && tv.IsValue())
 
-		w.Code(exprIndex)
+		w.code(exprIndex)
 		w.expr(expr.X)
 		w.pos(expr)
 		w.expr(expr.Index)
 
 	case *syntax.SliceExpr:
-		w.Code(exprSlice)
+		w.code(exprSlice)
 		w.expr(expr.X)
 		w.pos(expr)
 		for _, n := range &expr.Index {
@@ -1278,24 +1272,21 @@ func (w *writer) expr(expr syntax.Expr) {
 		}
 
 	case *syntax.AssertExpr:
-		tv, ok := w.p.info.Types[expr.X]
-		assert(ok && tv.IsValue())
-
-		w.Code(exprAssert)
+		w.code(exprAssert)
 		w.expr(expr.X)
 		w.pos(expr)
-		w.exprType(tv.Type, expr.Type, false)
+		w.expr(expr.Type)
 
 	case *syntax.Operation:
 		if expr.Y == nil {
-			w.Code(exprUnaryOp)
+			w.code(exprUnaryOp)
 			w.op(unOps[expr.Op])
 			w.pos(expr)
 			w.expr(expr.X)
 			break
 		}
 
-		w.Code(exprBinaryOp)
+		w.code(exprBinaryOp)
 		w.op(binOps[expr.Op])
 		w.expr(expr.X)
 		w.pos(expr)
@@ -1308,7 +1299,7 @@ func (w *writer) expr(expr syntax.Expr) {
 			assert(len(expr.ArgList) == 1)
 			assert(!expr.HasDots)
 
-			w.Code(exprConvert)
+			w.code(exprConvert)
 			w.typ(tv.Type)
 			w.pos(expr)
 			w.expr(expr.ArgList[0])
@@ -1319,7 +1310,7 @@ func (w *writer) expr(expr syntax.Expr) {
 			if selector, ok := unparen(expr.Fun).(*syntax.SelectorExpr); ok {
 				if sel, ok := w.p.info.Selections[selector]; ok && sel.Kind() == types2.MethodVal {
 					w.expr(selector.X)
-					w.Bool(true) // method call
+					w.bool(true) // method call
 					w.pos(selector)
 					w.selector(sel.Obj())
 					return
@@ -1327,14 +1318,14 @@ func (w *writer) expr(expr syntax.Expr) {
 			}
 
 			w.expr(expr.Fun)
-			w.Bool(false) // not a method call (i.e., normal function call)
+			w.bool(false) // not a method call (i.e., normal function call)
 		}
 
-		w.Code(exprCall)
+		w.code(exprCall)
 		writeFunExpr()
 		w.pos(expr)
 		w.exprs(expr.ArgList)
-		w.Bool(expr.HasDots)
+		w.bool(expr.HasDots)
 	}
 }
 
@@ -1342,7 +1333,7 @@ func (w *writer) compLit(lit *syntax.CompositeLit) {
 	tv, ok := w.p.info.Types[lit]
 	assert(ok)
 
-	w.Sync(pkgbits.SyncCompLit)
+	w.sync(syncCompLit)
 	w.pos(lit)
 	w.typ(tv.Type)
 
@@ -1352,20 +1343,20 @@ func (w *writer) compLit(lit *syntax.CompositeLit) {
 	}
 	str, isStruct := types2.CoreType(typ).(*types2.Struct)
 
-	w.Len(len(lit.ElemList))
+	w.len(len(lit.ElemList))
 	for i, elem := range lit.ElemList {
 		if isStruct {
 			if kv, ok := elem.(*syntax.KeyValueExpr); ok {
 				// use position of expr.Key rather than of elem (which has position of ':')
 				w.pos(kv.Key)
-				w.Len(fieldIndex(w.p.info, str, kv.Key.(*syntax.Name)))
+				w.len(fieldIndex(w.p.info, str, kv.Key.(*syntax.Name)))
 				elem = kv.Value
 			} else {
 				w.pos(elem)
-				w.Len(i)
+				w.len(i)
 			}
 		} else {
-			if kv, ok := elem.(*syntax.KeyValueExpr); w.Bool(ok) {
+			if kv, ok := elem.(*syntax.KeyValueExpr); w.bool(ok) {
 				// use position of expr.Key rather than of elem (which has position of ':')
 				w.pos(kv.Key)
 				w.expr(kv.Key)
@@ -1384,17 +1375,21 @@ func (w *writer) funcLit(expr *syntax.FuncLit) {
 
 	body, closureVars := w.p.bodyIdx(w.p.curpkg, sig, expr.Body, w.dict)
 
-	w.Sync(pkgbits.SyncFuncLit)
+	w.sync(syncFuncLit)
 	w.pos(expr)
+	w.pos(expr.Type) // for QuirksMode
 	w.signature(sig)
 
-	w.Len(len(closureVars))
+	w.len(len(closureVars))
 	for _, cv := range closureVars {
 		w.pos(cv.pos)
+		if quirksMode() {
+			cv.pos = expr.Body.Rbrace
+		}
 		w.useLocal(cv.pos, cv.obj)
 	}
 
-	w.Reloc(pkgbits.RelocBody, body)
+	w.reloc(relocBody, body)
 }
 
 type posObj struct {
@@ -1403,7 +1398,7 @@ type posObj struct {
 }
 
 func (w *writer) exprList(expr syntax.Expr) {
-	w.Sync(pkgbits.SyncExprList)
+	w.sync(syncExprList)
 	w.exprs(unpackListExpr(expr))
 }
 
@@ -1412,60 +1407,11 @@ func (w *writer) exprs(exprs []syntax.Expr) {
 		assert(exprs == nil)
 	}
 
-	w.Sync(pkgbits.SyncExprs)
-	w.Len(len(exprs))
+	w.sync(syncExprs)
+	w.len(len(exprs))
 	for _, expr := range exprs {
 		w.expr(expr)
 	}
-}
-
-func (w *writer) exprType(iface types2.Type, typ syntax.Expr, nilOK bool) {
-	base.Assertf(iface == nil || isInterface(iface), "%v must be nil or an interface type", iface)
-
-	tv, ok := w.p.info.Types[typ]
-	assert(ok)
-
-	w.Sync(pkgbits.SyncExprType)
-
-	if nilOK && w.Bool(tv.IsNil()) {
-		return
-	}
-
-	assert(tv.IsType())
-	info := w.p.typIdx(tv.Type, w.dict)
-
-	w.pos(typ)
-
-	if w.Bool(info.derived && iface != nil && !iface.Underlying().(*types2.Interface).Empty()) {
-		ifaceInfo := w.p.typIdx(iface, w.dict)
-
-		idx := -1
-		for i, itab := range w.dict.itabs {
-			if itab.typIdx == info.idx && itab.iface == ifaceInfo {
-				idx = i
-			}
-		}
-		if idx < 0 {
-			idx = len(w.dict.itabs)
-			w.dict.itabs = append(w.dict.itabs, itabInfo{typIdx: info.idx, iface: ifaceInfo})
-		}
-		w.Len(idx)
-		return
-	}
-
-	w.typInfo(info)
-}
-
-func isInterface(typ types2.Type) bool {
-	if _, ok := typ.(*types2.TypeParam); ok {
-		// typ is a type parameter and may be instantiated as either a
-		// concrete or interface type, so the writer can't depend on
-		// knowing this.
-		base.Fatalf("%v is a type parameter", typ)
-	}
-
-	_, ok := typ.Underlying().(*types2.Interface)
-	return ok
 }
 
 func (w *writer) op(op ir.Op) {
@@ -1473,8 +1419,8 @@ func (w *writer) op(op ir.Op) {
 	// export data more stable against internal refactorings, but low
 	// priority at the moment.
 	assert(op != 0)
-	w.Sync(pkgbits.SyncOp)
-	w.Len(int(op))
+	w.sync(syncOp)
+	w.len(int(op))
 }
 
 func (w *writer) needType(typ types2.Type) {
@@ -1592,6 +1538,21 @@ func (c *declCollector) Visit(n syntax.Node) syntax.Visitor {
 			}
 		}
 
+		// Workaround for #46208. For variable declarations that
+		// declare multiple variables and have an explicit type
+		// expression, the type expression is evaluated multiple
+		// times. This affects toolstash -cmp, because iexport is
+		// sensitive to *types.Type pointer identity.
+		if quirksMode() && n.Type != nil {
+			tv, ok := pw.info.Types[n.Type]
+			assert(ok)
+			assert(tv.IsType())
+			for _, name := range n.NameList {
+				obj := pw.info.Defs[name].(*types2.Var)
+				pw.dups.add(obj.Type(), tv.Type)
+			}
+		}
+
 	case *syntax.BlockStmt:
 		if !c.withinFunc {
 			copy := *c
@@ -1660,20 +1621,34 @@ func (pw *pkgWriter) checkPragmas(p syntax.Pragma, allowed ir.PragmaFlag, embedO
 }
 
 func (w *writer) pkgInit(noders []*noder) {
-	w.Len(len(w.p.cgoPragmas))
-	for _, cgoPragma := range w.p.cgoPragmas {
-		w.Strings(cgoPragma)
+	if quirksMode() {
+		posBases := posBasesOf(noders)
+		w.len(len(posBases))
+		for _, posBase := range posBases {
+			w.posBase(posBase)
+		}
+
+		objs := importedObjsOf(w.p.curpkg, w.p.info, noders)
+		w.len(len(objs))
+		for _, obj := range objs {
+			w.qualifiedIdent(obj)
+		}
 	}
 
-	w.Sync(pkgbits.SyncDecls)
+	w.len(len(w.p.cgoPragmas))
+	for _, cgoPragma := range w.p.cgoPragmas {
+		w.strings(cgoPragma)
+	}
+
+	w.sync(syncDecls)
 	for _, p := range noders {
 		for _, decl := range p.file.DeclList {
 			w.pkgDecl(decl)
 		}
 	}
-	w.Code(declEnd)
+	w.code(declEnd)
 
-	w.Sync(pkgbits.SyncEOF)
+	w.sync(syncEOF)
 }
 
 func (w *writer) pkgDecl(decl syntax.Decl) {
@@ -1684,7 +1659,7 @@ func (w *writer) pkgDecl(decl syntax.Decl) {
 	case *syntax.ImportDecl:
 
 	case *syntax.ConstDecl:
-		w.Code(declOther)
+		w.code(declOther)
 		w.pkgObjs(decl.NameList...)
 
 	case *syntax.FuncDecl:
@@ -1700,13 +1675,13 @@ func (w *writer) pkgDecl(decl syntax.Decl) {
 		}
 
 		if recv := sig.Recv(); recv != nil {
-			w.Code(declMethod)
+			w.code(declMethod)
 			w.typ(recvBase(recv))
 			w.selector(obj)
 			break
 		}
 
-		w.Code(declFunc)
+		w.code(declFunc)
 		w.pkgObjs(decl.Name)
 
 	case *syntax.TypeDecl:
@@ -1725,11 +1700,20 @@ func (w *writer) pkgDecl(decl syntax.Decl) {
 			break
 		}
 
-		w.Code(declOther)
+		// Skip aliases to uninstantiated generic types.
+		// TODO(mdempsky): Revisit after #46477 is resolved.
+		if name.IsAlias() {
+			named, ok := name.Type().(*types2.Named)
+			if ok && named.TypeParams().Len() != 0 && named.TypeArgs().Len() == 0 {
+				break
+			}
+		}
+
+		w.code(declOther)
 		w.pkgObjs(decl.Name)
 
 	case *syntax.VarDecl:
-		w.Code(declVar)
+		w.code(declVar)
 		w.pos(decl)
 		w.pkgObjs(decl.NameList...)
 		w.exprList(decl.Values)
@@ -1738,23 +1722,23 @@ func (w *writer) pkgDecl(decl syntax.Decl) {
 		if p, ok := decl.Pragma.(*pragmas); ok {
 			embeds = p.Embeds
 		}
-		w.Len(len(embeds))
+		w.len(len(embeds))
 		for _, embed := range embeds {
 			w.pos(embed.Pos)
-			w.Strings(embed.Patterns)
+			w.strings(embed.Patterns)
 		}
 	}
 }
 
 func (w *writer) pkgObjs(names ...*syntax.Name) {
-	w.Sync(pkgbits.SyncDeclNames)
-	w.Len(len(names))
+	w.sync(syncDeclNames)
+	w.len(len(names))
 
 	for _, name := range names {
 		obj, ok := w.p.info.Defs[name]
 		assert(ok)
 
-		w.Sync(pkgbits.SyncDeclName)
+		w.sync(syncDeclName)
 		w.obj(obj, nil)
 	}
 }

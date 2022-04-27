@@ -120,17 +120,6 @@ func CanInline(fn *ir.Func) {
 		return
 	}
 
-	// If marked as "go:uintptrkeepalive", don't inline, since the
-	// keep alive information is lost during inlining.
-	//
-	// TODO(prattmic): This is handled on calls during escape analysis,
-	// which is after inlining. Move prior to inlining so the keep-alive is
-	// maintained after inlining.
-	if fn.Pragma&ir.UintptrKeepAlive != 0 {
-		reason = "marked as having a keep-alive uintptr argument"
-		return
-	}
-
 	// If marked as "go:uintptrescapes", don't inline, since the
 	// escape information is lost during inlining.
 	if fn.Pragma&ir.UintptrEscapes != 0 {
@@ -369,7 +358,8 @@ func (v *hairyVisitor) doNode(n ir.Node) bool {
 			return true
 		}
 
-	case ir.OGO,
+	case ir.OSELECT,
+		ir.OGO,
 		ir.ODEFER,
 		ir.ODCLTYPE, // can't print yet
 		ir.OTAILCALL:
@@ -533,8 +523,7 @@ func InlineCalls(fn *ir.Func) {
 // but then you may as well do it here.  so this is cleaner and
 // shorter and less complicated.
 // The result of inlnode MUST be assigned back to n, e.g.
-//
-//	n.Left = inlnode(n.Left)
+// 	n.Left = inlnode(n.Left)
 func inlnode(n ir.Node, maxCost int32, inlMap map[*ir.Func]bool, edit func(ir.Node) ir.Node) ir.Node {
 	if n == nil {
 		return n
@@ -669,8 +658,7 @@ var NewInline = func(call *ir.CallExpr, fn *ir.Func, inlIndex int) *ir.InlinedCa
 // inlined function body, and (List, Rlist) contain the (input, output)
 // parameters.
 // The result of mkinlcall MUST be assigned back to n, e.g.
-//
-//	n.Left = mkinlcall(n.Left, fn, isddd)
+// 	n.Left = mkinlcall(n.Left, fn, isddd)
 func mkinlcall(n *ir.CallExpr, fn *ir.Func, maxCost int32, inlMap map[*ir.Func]bool, edit func(ir.Node) ir.Node) ir.Node {
 	if fn.Inl == nil {
 		if logopt.Enabled() {
@@ -1322,7 +1310,7 @@ func (subst *inlsubst) node(n ir.Node) ir.Node {
 	ir.EditChildren(m, subst.edit)
 
 	if subst.newclofn == nil {
-		// Translate any label on FOR, RANGE loops, SWITCH or SELECT
+		// Translate any label on FOR, RANGE loops or SWITCH
 		switch m.Op() {
 		case ir.OFOR:
 			m := m.(*ir.ForStmt)
@@ -1338,12 +1326,8 @@ func (subst *inlsubst) node(n ir.Node) ir.Node {
 			m := m.(*ir.SwitchStmt)
 			m.Label = translateLabel(m.Label)
 			return m
-
-		case ir.OSELECT:
-			m := m.(*ir.SelectStmt)
-			m.Label = translateLabel(m.Label)
-			return m
 		}
+
 	}
 
 	switch m := m.(type) {

@@ -82,9 +82,7 @@ func (z *Float) Sqrt(x *Float) *Float {
 }
 
 // Compute √x (to z.prec precision) by solving
-//
-//	1/t² - x = 0
-//
+//   1/t² - x = 0
 // for t (using Newton's method), and then inverting.
 func (z *Float) sqrtInverse(x *Float) {
 	// let

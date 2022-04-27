@@ -212,6 +212,7 @@ func (*Type) CanBeAnSSAAux() {}
 
 const (
 	typeNotInHeap  = 1 << iota // type cannot be heap allocated
+	typeBroke                  // broken type definition
 	typeNoalg                  // suppress hash and eq algorithm generation
 	typeDeferwidth             // width computation has been deferred and type is on deferredTypeStack
 	typeRecur
@@ -221,6 +222,7 @@ const (
 )
 
 func (t *Type) NotInHeap() bool  { return t.flags&typeNotInHeap != 0 }
+func (t *Type) Broke() bool      { return t.flags&typeBroke != 0 }
 func (t *Type) Noalg() bool      { return t.flags&typeNoalg != 0 }
 func (t *Type) Deferwidth() bool { return t.flags&typeDeferwidth != 0 }
 func (t *Type) Recur() bool      { return t.flags&typeRecur != 0 }
@@ -229,6 +231,7 @@ func (t *Type) IsShape() bool    { return t.flags&typeIsShape != 0 }
 func (t *Type) HasShape() bool   { return t.flags&typeHasShape != 0 }
 
 func (t *Type) SetNotInHeap(b bool)  { t.flags.set(typeNotInHeap, b) }
+func (t *Type) SetBroke(b bool)      { t.flags.set(typeBroke, b) }
 func (t *Type) SetNoalg(b bool)      { t.flags.set(typeNoalg, b) }
 func (t *Type) SetDeferwidth(b bool) { t.flags.set(typeDeferwidth, b) }
 func (t *Type) SetRecur(b bool)      { t.flags.set(typeRecur, b) }
@@ -492,9 +495,9 @@ type Slice struct {
 
 // A Field is a (Sym, Type) pairing along with some other information, and,
 // depending on the context, is used to represent:
-//   - a field in a struct
-//   - a method in an interface or associated with a named type
-//   - a function parameter
+//  - a field in a struct
+//  - a method in an interface or associated with a named type
+//  - a function parameter
 type Field struct {
 	flags bitset8
 
@@ -521,13 +524,16 @@ type Field struct {
 
 const (
 	fieldIsDDD = 1 << iota // field is ... argument
+	fieldBroke             // broken field definition
 	fieldNointerface
 )
 
 func (f *Field) IsDDD() bool       { return f.flags&fieldIsDDD != 0 }
+func (f *Field) Broke() bool       { return f.flags&fieldBroke != 0 }
 func (f *Field) Nointerface() bool { return f.flags&fieldNointerface != 0 }
 
 func (f *Field) SetIsDDD(b bool)       { f.flags.set(fieldIsDDD, b) }
+func (f *Field) SetBroke(b bool)       { f.flags.set(fieldBroke, b) }
 func (f *Field) SetNointerface(b bool) { f.flags.set(fieldNointerface, b) }
 
 // End returns the offset of the first byte immediately after this field.
@@ -792,7 +798,7 @@ func NewField(pos src.XPos, sym *Sym, typ *Type) *Field {
 		Offset: BADWIDTH,
 	}
 	if typ == nil {
-		base.Fatalf("typ is nil")
+		f.SetBroke(true)
 	}
 	return f
 }
@@ -1121,10 +1127,9 @@ func (t *Type) SimpleString() string {
 }
 
 // Cmp is a comparison between values a and b.
-//
-//	-1 if a < b
-//	 0 if a == b
-//	 1 if a > b
+// -1 if a < b
+//  0 if a == b
+//  1 if a > b
 type Cmp int8
 
 const (
@@ -1629,7 +1634,6 @@ func (t *Type) NumComponents(countBlank componentsIncludeBlankFields) int64 {
 // SoleComponent returns the only primitive component in t,
 // if there is exactly one. Otherwise, it returns nil.
 // Components are counted as in NumComponents, including blank fields.
-// Keep in sync with cmd/compile/internal/walk/convert.go:soleComponent.
 func (t *Type) SoleComponent() *Type {
 	switch t.kind {
 	case TSTRUCT:
@@ -1782,6 +1786,9 @@ func (t *Type) SetUnderlying(underlying *Type) {
 	if underlying.NotInHeap() {
 		t.SetNotInHeap(true)
 	}
+	if underlying.Broke() {
+		t.SetBroke(true)
+	}
 	if underlying.HasTParam() {
 		t.SetHasTParam(true)
 	}
@@ -1851,6 +1858,9 @@ func NewInterface(pkg *Pkg, methods []*Field, implicit bool) *Type {
 			t.SetHasShape(true)
 			break
 		}
+	}
+	if anyBroke(methods) {
+		t.SetBroke(true)
 	}
 	t.extra.(*Interface).pkg = pkg
 	t.extra.(*Interface).implicit = implicit
@@ -1961,6 +1971,9 @@ func NewSignature(pkg *Pkg, recv *Field, tparams, params, results []*Field) *Typ
 	funargs := func(fields []*Field, funarg Funarg) *Type {
 		s := NewStruct(NoPkg, fields)
 		s.StructType().Funarg = funarg
+		if s.Broke() {
+			t.SetBroke(true)
+		}
 		return s
 	}
 
@@ -1990,6 +2003,9 @@ func NewSignature(pkg *Pkg, recv *Field, tparams, params, results []*Field) *Typ
 func NewStruct(pkg *Pkg, fields []*Field) *Type {
 	t := newType(TSTRUCT)
 	t.SetFields(fields)
+	if anyBroke(fields) {
+		t.SetBroke(true)
+	}
 	t.extra.(*Struct).pkg = pkg
 	if fieldsHasTParam(fields) {
 		t.SetHasTParam(true)
@@ -1998,6 +2014,15 @@ func NewStruct(pkg *Pkg, fields []*Field) *Type {
 		t.SetHasShape(true)
 	}
 	return t
+}
+
+func anyBroke(fields []*Field) bool {
+	for _, f := range fields {
+		if f.Broke() {
+			return true
+		}
+	}
+	return false
 }
 
 var (
@@ -2058,6 +2083,10 @@ func IsReflexive(t *Type) bool {
 // Can this type be stored directly in an interface word?
 // Yes, if the representation is a single pointer.
 func IsDirectIface(t *Type) bool {
+	if t.Broke() {
+		return false
+	}
+
 	switch t.Kind() {
 	case TPTR:
 		// Pointers to notinheap types must be stored indirectly. See issue 42076.

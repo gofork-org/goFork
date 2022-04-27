@@ -1,4 +1,4 @@
-// run
+// run -gcflags=-G=3
 
 // Copyright 2021 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -6,20 +6,20 @@
 
 package main
 
-import "fmt"
+import "reflect"
 
 func f[T any](i interface{}) {
 	switch x := i.(type) {
 	case T:
-		fmt.Println("T", x)
+		println("T", x)
 	case int:
-		fmt.Println("int", x)
+		println("int", x)
 	case int32, int16:
-		fmt.Println("int32/int16", x)
+		println("int32/int16", reflect.ValueOf(x).Int())
 	case struct{ a, b T }:
-		fmt.Println("struct{T,T}", x.a, x.b)
+		println("struct{T,T}", x.a, x.b)
 	default:
-		fmt.Println("other", x)
+		println("other", reflect.ValueOf(x).Int())
 	}
 }
 func main() {
@@ -30,6 +30,4 @@ func main() {
 	f[float64](int8(9))
 	f[int32](int32(7))
 	f[int](int32(7))
-	f[any](int(10))
-	f[interface{ M() }](int(11))
 }

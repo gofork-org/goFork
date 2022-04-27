@@ -31,7 +31,8 @@ import (
 // using a special data structure passed in a register.
 //
 // A method declaration is represented like functions, except f.Sym
-// will be the qualified method name (e.g., "T.m").
+// will be the qualified method name (e.g., "T.m") and
+// f.Func.Shortname is the bare method name (e.g., "m").
 //
 // A method expression (T.M) is represented as an OMETHEXPR node,
 // in which n.Left and n.Right point to the type and method, respectively.
@@ -50,9 +51,12 @@ import (
 type Func struct {
 	miniNode
 	Body Nodes
+	Iota int64
 
 	Nname    *Name        // ONAME node
 	OClosure *ClosureExpr // OCLOSURE node
+
+	Shortname *types.Sym
 
 	// Extra entry code for the function. For example, allocate and initialize
 	// memory for escaping parameters.
@@ -139,6 +143,7 @@ func NewFunc(pos src.XPos) *Func {
 	f := new(Func)
 	f.pos = pos
 	f.op = ODCLFUNC
+	f.Iota = -1
 	// Most functions are ABIInternal. The importer or symabis
 	// pass may override this.
 	f.ABI = obj.ABIInternal
@@ -368,9 +373,7 @@ func NewClosureFunc(pos src.XPos, hidden bool) *Func {
 	fn.Nname.Func = fn
 	fn.Nname.Defn = fn
 
-	fn.OClosure = &ClosureExpr{Func: fn}
-	fn.OClosure.op = OCLOSURE
-	fn.OClosure.pos = pos
+	fn.OClosure = NewClosureExpr(pos, fn)
 
 	return fn
 }

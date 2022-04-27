@@ -5,9 +5,7 @@
 package generate
 
 import (
-	"internal/testenv"
 	"os"
-	"path/filepath"
 	"reflect"
 	"runtime"
 	"testing"
@@ -43,11 +41,10 @@ var splitTests = []splitTest{
 }
 
 func TestGenerateCommandParse(t *testing.T) {
-	dir := filepath.Join(testenv.GOROOT(t), "src", "sys")
 	g := &Generator{
 		r:        nil, // Unused here.
-		path:     filepath.Join(dir, "proc.go"),
-		dir:      dir,
+		path:     "/usr/ken/sys/proc.go",
+		dir:      "/usr/ken/sys",
 		file:     "proc.go",
 		pkg:      "sys",
 		commands: make(map[string][]string),
@@ -81,17 +78,16 @@ var defEnvMap = map[string]string{
 
 // TestGenerateCommandShortHand - similar to TestGenerateCommandParse,
 // except:
-//  1. if the result starts with -command, record that shorthand
-//     before moving on to the next test.
-//  2. If a source line number is specified, set that in the parser
-//     before executing the test.  i.e., execute the split as if it
-//     processing that source line.
+//    1. if the result starts with -command, record that shorthand
+//       before moving on to the next test.
+//    2. If a source line number is specified, set that in the parser
+//       before executing the test.  i.e., execute the split as if it
+//       processing that source line.
 func TestGenerateCommandShorthand(t *testing.T) {
-	dir := filepath.Join(testenv.GOROOT(t), "src", "sys")
 	g := &Generator{
 		r:        nil, // Unused here.
-		path:     filepath.Join(dir, "proc.go"),
-		dir:      dir,
+		path:     "/usr/ken/sys/proc.go",
+		dir:      "/usr/ken/sys",
 		file:     "proc.go",
 		pkg:      "sys",
 		commands: make(map[string][]string),
@@ -220,17 +216,16 @@ var splitTestsLines = []splitTestWithLine{
 
 // TestGenerateCommandShortHand - similar to TestGenerateCommandParse,
 // except:
-//  1. if the result starts with -command, record that shorthand
-//     before moving on to the next test.
-//  2. If a source line number is specified, set that in the parser
-//     before executing the test.  i.e., execute the split as if it
-//     processing that source line.
+//    1. if the result starts with -command, record that shorthand
+//       before moving on to the next test.
+//    2. If a source line number is specified, set that in the parser
+//       before executing the test.  i.e., execute the split as if it
+//       processing that source line.
 func TestGenerateCommandShortHand2(t *testing.T) {
-	dir := filepath.Join(testenv.GOROOT(t), "src", "sys")
 	g := &Generator{
 		r:        nil, // Unused here.
-		path:     filepath.Join(dir, "proc.go"),
-		dir:      dir,
+		path:     "/usr/ken/sys/proc.go",
+		dir:      "/usr/ken/sys",
 		file:     "proc.go",
 		pkg:      "sys",
 		commands: make(map[string][]string),

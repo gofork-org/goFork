@@ -1023,7 +1023,6 @@ func TestLockOSThreadTemplateThreadRace(t *testing.T) {
 }
 
 // fakeSyscall emulates a system call.
-//
 //go:nosplit
 func fakeSyscall(duration time.Duration) {
 	runtime.Entersyscall()

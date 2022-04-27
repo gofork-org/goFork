@@ -37,6 +37,7 @@
 // Note: The maximum number of concurrent operations on a File may be limited by
 // the OS or the system. The number should be high, but exceeding it may degrade
 // performance or cause other issues.
+//
 package os
 
 import (
@@ -622,8 +623,6 @@ func isWindowsNulName(name string) bool {
 // the /prefix tree, then using DirFS does not stop the access any more than using
 // os.Open does. DirFS is therefore not a general substitute for a chroot-style security
 // mechanism when the directory tree contains arbitrary content.
-//
-// The result implements fs.StatFS.
 func DirFS(dir string) fs.FS {
 	return dirFS(dir)
 }

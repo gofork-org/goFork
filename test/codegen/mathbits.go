@@ -13,8 +13,7 @@ import "math/bits"
 // ----------------------- //
 
 func LeadingZeros(n uint) int {
-	// amd64/v1,amd64/v2:"BSRQ"
-	// amd64/v3:"LZCNTQ", -"BSRQ"
+	// amd64:"BSRQ"
 	// s390x:"FLOGR"
 	// arm:"CLZ" arm64:"CLZ"
 	// mips:"CLZ"
@@ -23,8 +22,7 @@ func LeadingZeros(n uint) int {
 }
 
 func LeadingZeros64(n uint64) int {
-	// amd64/v1,amd64/v2:"BSRQ"
-	// amd64/v3:"LZCNTQ", -"BSRQ"
+	// amd64:"BSRQ"
 	// s390x:"FLOGR"
 	// arm:"CLZ" arm64:"CLZ"
 	// mips:"CLZ"
@@ -33,8 +31,7 @@ func LeadingZeros64(n uint64) int {
 }
 
 func LeadingZeros32(n uint32) int {
-	// amd64/v1,amd64/v2:"BSRQ","LEAQ",-"CMOVQEQ"
-	// amd64/v3: "LZCNTL",- "BSRL"
+	// amd64:"BSRQ","LEAQ",-"CMOVQEQ"
 	// s390x:"FLOGR"
 	// arm:"CLZ" arm64:"CLZW"
 	// mips:"CLZ"
@@ -43,8 +40,7 @@ func LeadingZeros32(n uint32) int {
 }
 
 func LeadingZeros16(n uint16) int {
-	// amd64/v1,amd64/v2:"BSRL","LEAL",-"CMOVQEQ"
-	// amd64/v3: "LZCNTL",- "BSRL"
+	// amd64:"BSRL","LEAL",-"CMOVQEQ"
 	// s390x:"FLOGR"
 	// arm:"CLZ" arm64:"CLZ"
 	// mips:"CLZ"
@@ -53,8 +49,7 @@ func LeadingZeros16(n uint16) int {
 }
 
 func LeadingZeros8(n uint8) int {
-	// amd64/v1,amd64/v2:"BSRL","LEAL",-"CMOVQEQ"
-	// amd64/v3: "LZCNTL",- "BSRL"
+	// amd64:"BSRL","LEAL",-"CMOVQEQ"
 	// s390x:"FLOGR"
 	// arm:"CLZ" arm64:"CLZ"
 	// mips:"CLZ"
@@ -67,8 +62,7 @@ func LeadingZeros8(n uint8) int {
 // --------------- //
 
 func Len(n uint) int {
-	// amd64/v1,amd64/v2:"BSRQ"
-	// amd64/v3: "LZCNTQ"
+	// amd64:"BSRQ"
 	// s390x:"FLOGR"
 	// arm:"CLZ" arm64:"CLZ"
 	// mips:"CLZ"
@@ -77,8 +71,7 @@ func Len(n uint) int {
 }
 
 func Len64(n uint64) int {
-	// amd64/v1,amd64/v2:"BSRQ"
-	// amd64/v3: "LZCNTQ"
+	// amd64:"BSRQ"
 	// s390x:"FLOGR"
 	// arm:"CLZ" arm64:"CLZ"
 	// mips:"CLZ"
@@ -95,8 +88,7 @@ func SubFromLen64(n uint64) int {
 }
 
 func Len32(n uint32) int {
-	// amd64/v1,amd64/v2:"BSRQ","LEAQ",-"CMOVQEQ"
-	// amd64/v3: "LZCNTL"
+	// amd64:"BSRQ","LEAQ",-"CMOVQEQ"
 	// s390x:"FLOGR"
 	// arm:"CLZ" arm64:"CLZ"
 	// mips:"CLZ"
@@ -107,8 +99,7 @@ func Len32(n uint32) int {
 }
 
 func Len16(n uint16) int {
-	// amd64/v1,amd64/v2:"BSRL","LEAL",-"CMOVQEQ"
-	// amd64/v3: "LZCNTL"
+	// amd64:"BSRL","LEAL",-"CMOVQEQ"
 	// s390x:"FLOGR"
 	// arm:"CLZ" arm64:"CLZ"
 	// mips:"CLZ"
@@ -117,8 +108,7 @@ func Len16(n uint16) int {
 }
 
 func Len8(n uint8) int {
-	// amd64/v1,amd64/v2:"BSRL","LEAL",-"CMOVQEQ"
-	// amd64/v3: "LZCNTL"
+	// amd64:"BSRL","LEAL",-"CMOVQEQ"
 	// s390x:"FLOGR"
 	// arm:"CLZ" arm64:"CLZ"
 	// mips:"CLZ"

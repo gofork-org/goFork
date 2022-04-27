@@ -281,8 +281,6 @@ func TestTruncateRound(t *testing.T) {
 	b1e9.SetInt64(1e9)
 
 	testOne := func(ti, tns, di int64) bool {
-		t.Helper()
-
 		t0 := Unix(ti, int64(tns)).UTC()
 		d := Duration(di)
 		if d < 0 {
@@ -369,13 +367,6 @@ func TestTruncateRound(t *testing.T) {
 		for i := 0; i < int(b); i++ {
 			d *= 5
 		}
-
-		// Make room for unix ↔ internal conversion.
-		// We don't care about behavior too close to ± 2^63 Unix seconds.
-		// It is full of wraparounds but will never happen in a reasonable program.
-		// (Or maybe not? See go.dev/issue/20678. In any event, they're not handled today.)
-		ti >>= 1
-
 		return testOne(ti, int64(tns), int64(d))
 	}
 	quick.Check(f1, cfg)
@@ -386,7 +377,6 @@ func TestTruncateRound(t *testing.T) {
 		if d < 0 {
 			d = -d
 		}
-		ti >>= 1 // see comment in f1
 		return testOne(ti, int64(tns), int64(d))
 	}
 	quick.Check(f2, cfg)
@@ -409,7 +399,6 @@ func TestTruncateRound(t *testing.T) {
 
 	// full generality
 	f4 := func(ti int64, tns int32, di int64) bool {
-		ti >>= 1 // see comment in f1
 		return testOne(ti, int64(tns), di)
 	}
 	quick.Check(f4, cfg)
@@ -1251,30 +1240,6 @@ func TestDurationRound(t *testing.T) {
 	}
 }
 
-var durationAbsTests = []struct {
-	d    Duration
-	want Duration
-}{
-	{0, 0},
-	{1, 1},
-	{-1, 1},
-	{1 * Minute, 1 * Minute},
-	{-1 * Minute, 1 * Minute},
-	{minDuration, maxDuration},
-	{minDuration + 1, maxDuration},
-	{minDuration + 2, maxDuration - 1},
-	{maxDuration, maxDuration},
-	{maxDuration - 1, maxDuration - 1},
-}
-
-func TestDurationAbs(t *testing.T) {
-	for _, tt := range durationAbsTests {
-		if got := tt.d.Abs(); got != tt.want {
-			t.Errorf("Duration(%s).Abs() = %s; want: %s", tt.d, got, tt.want)
-		}
-	}
-}
-
 var defaultLocTests = []struct {
 	name string
 	f    func(t1, t2 Time) bool
@@ -1592,8 +1557,8 @@ func TestConcurrentTimerResetStop(t *testing.T) {
 }
 
 func TestTimeIsDST(t *testing.T) {
-	undo := DisablePlatformSources()
-	defer undo()
+	ForceZipFileForTesting(true)
+	defer ForceZipFileForTesting(false)
 
 	tzWithDST, err := LoadLocation("Australia/Sydney")
 	if err != nil {
@@ -1654,8 +1619,8 @@ func TestTimeAddSecOverflow(t *testing.T) {
 
 // Issue 49284: time: ParseInLocation incorrectly because of Daylight Saving Time
 func TestTimeWithZoneTransition(t *testing.T) {
-	undo := DisablePlatformSources()
-	defer undo()
+	ForceZipFileForTesting(true)
+	defer ForceZipFileForTesting(false)
 
 	loc, err := LoadLocation("Asia/Shanghai")
 	if err != nil {

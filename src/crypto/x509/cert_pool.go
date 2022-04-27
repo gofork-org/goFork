@@ -77,8 +77,7 @@ func (s *CertPool) cert(n int) (*Certificate, error) {
 	return s.lazyCerts[n].getCert()
 }
 
-// Clone returns a copy of s.
-func (s *CertPool) Clone() *CertPool {
+func (s *CertPool) copy() *CertPool {
 	p := &CertPool{
 		byName:     make(map[string][]int, len(s.byName)),
 		lazyCerts:  make([]lazyCert, len(s.lazyCerts)),
@@ -110,7 +109,7 @@ func (s *CertPool) Clone() *CertPool {
 // New changes in the system cert pool might not be reflected in subsequent calls.
 func SystemCertPool() (*CertPool, error) {
 	if sysRoots := systemRootsPool(); sysRoots != nil {
-		return sysRoots.Clone(), nil
+		return sysRoots.copy(), nil
 	}
 
 	return loadSystemRoots()
@@ -249,20 +248,4 @@ func (s *CertPool) Subjects() [][]byte {
 		res[i] = lc.rawSubject
 	}
 	return res
-}
-
-// Equal reports whether s and other are equal.
-func (s *CertPool) Equal(other *CertPool) bool {
-	if s == nil || other == nil {
-		return s == other
-	}
-	if s.systemPool != other.systemPool || len(s.haveSum) != len(other.haveSum) {
-		return false
-	}
-	for h := range s.haveSum {
-		if !other.haveSum[h] {
-			return false
-		}
-	}
-	return true
 }

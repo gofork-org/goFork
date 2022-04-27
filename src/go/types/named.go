@@ -78,7 +78,6 @@ func (check *Checker) newNamed(obj *TypeName, orig *Named, underlying Type, tpar
 }
 
 func (t *Named) cleanup() {
-	assert(t.orig.orig == t.orig)
 	// Ensure that every defined type created in the course of type-checking has
 	// either non-*Named underlying, or is unresolved.
 	//
@@ -109,7 +108,7 @@ func (t *Named) Obj() *TypeName {
 func (t *Named) Origin() *Named { return t.orig }
 
 // TODO(gri) Come up with a better representation and API to distinguish
-// between parameterized instantiated and non-instantiated types.
+//           between parameterized instantiated and non-instantiated types.
 
 // TypeParams returns the type parameters of the named type t, or nil.
 // The result is non-nil for an (originally) generic type even if it is instantiated.
@@ -140,7 +139,7 @@ func (t *Named) Method(i int) *Func {
 	})
 }
 
-// instantiateMethod instantiates the i'th method for an instantiated receiver.
+// instiateMethod instantiates the i'th method for an instantiated receiver.
 func (t *Named) instantiateMethod(i int) *Func {
 	assert(t.TypeArgs().Len() > 0) // t must be an instance
 
@@ -357,18 +356,10 @@ func (check *Checker) bestContext(ctxt *Context) *Context {
 // expandNamed ensures that the underlying type of n is instantiated.
 // The underlying type will be Typ[Invalid] if there was an error.
 func expandNamed(ctxt *Context, n *Named, instPos token.Pos) (tparams *TypeParamList, underlying Type, methods *methodList) {
-	check := n.check
-	if check != nil && trace {
-		check.trace(instPos, "-- expandNamed %s", n)
-		check.indent++
-		defer func() {
-			check.indent--
-			check.trace(instPos, "=> %s (tparams = %s, under = %s)", n, tparams.list(), underlying)
-		}()
-	}
-
 	n.orig.resolve(ctxt)
 	assert(n.orig.underlying != nil)
+
+	check := n.check
 
 	if _, unexpanded := n.orig.underlying.(*Named); unexpanded {
 		// We should only get an unexpanded underlying here during type checking

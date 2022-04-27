@@ -149,11 +149,11 @@ func newPart(mr *Reader, rawPart bool) (*Part, error) {
 	return bp, nil
 }
 
-func (p *Part) populateHeaders() error {
-	r := textproto.NewReader(p.mr.bufReader)
+func (bp *Part) populateHeaders() error {
+	r := textproto.NewReader(bp.mr.bufReader)
 	header, err := r.ReadMIMEHeader()
 	if err == nil {
-		p.Header = header
+		bp.Header = header
 	}
 	return err
 }
@@ -264,8 +264,7 @@ func scanUntilBoundary(buf, dashBoundary, nlDashBoundary []byte, total int64, re
 // and the caller has verified already that bytes.HasPrefix(buf, prefix) is true.
 //
 // matchAfterPrefix returns +1 if the buffer does match the boundary,
-// meaning the prefix is followed by a double dash, space, tab, cr, nl,
-// or end of input.
+// meaning the prefix is followed by a dash, space, tab, cr, nl, or end of input.
 // It returns -1 if the buffer definitely does NOT match the boundary,
 // meaning the prefix is followed by some other character.
 // For example, "--foobar" does not match "--foo".
@@ -279,25 +278,9 @@ func matchAfterPrefix(buf, prefix []byte, readErr error) int {
 		return 0
 	}
 	c := buf[len(prefix)]
-
-	if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+	if c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '-' {
 		return +1
 	}
-
-	// Try to detect boundaryDash
-	if c == '-' {
-		if len(buf) == len(prefix)+1 {
-			if readErr != nil {
-				// Prefix + "-" does not match
-				return -1
-			}
-			return 0
-		}
-		if buf[len(prefix)+1] == '-' {
-			return +1
-		}
-	}
-
 	return -1
 }
 
@@ -403,42 +386,41 @@ func (r *Reader) nextPart(rawPart bool) (*Part, error) {
 // isFinalBoundary reports whether line is the final boundary line
 // indicating that all parts are over.
 // It matches `^--boundary--[ \t]*(\r\n)?$`
-func (r *Reader) isFinalBoundary(line []byte) bool {
-	if !bytes.HasPrefix(line, r.dashBoundaryDash) {
+func (mr *Reader) isFinalBoundary(line []byte) bool {
+	if !bytes.HasPrefix(line, mr.dashBoundaryDash) {
 		return false
 	}
-	rest := line[len(r.dashBoundaryDash):]
+	rest := line[len(mr.dashBoundaryDash):]
 	rest = skipLWSPChar(rest)
-	return len(rest) == 0 || bytes.Equal(rest, r.nl)
+	return len(rest) == 0 || bytes.Equal(rest, mr.nl)
 }
 
-func (r *Reader) isBoundaryDelimiterLine(line []byte) (ret bool) {
+func (mr *Reader) isBoundaryDelimiterLine(line []byte) (ret bool) {
 	// https://tools.ietf.org/html/rfc2046#section-5.1
 	//   The boundary delimiter line is then defined as a line
 	//   consisting entirely of two hyphen characters ("-",
 	//   decimal value 45) followed by the boundary parameter
 	//   value from the Content-Type header field, optional linear
 	//   whitespace, and a terminating CRLF.
-	if !bytes.HasPrefix(line, r.dashBoundary) {
+	if !bytes.HasPrefix(line, mr.dashBoundary) {
 		return false
 	}
-	rest := line[len(r.dashBoundary):]
+	rest := line[len(mr.dashBoundary):]
 	rest = skipLWSPChar(rest)
 
 	// On the first part, see our lines are ending in \n instead of \r\n
 	// and switch into that mode if so. This is a violation of the spec,
 	// but occurs in practice.
-	if r.partsRead == 0 && len(rest) == 1 && rest[0] == '\n' {
-		r.nl = r.nl[1:]
-		r.nlDashBoundary = r.nlDashBoundary[1:]
+	if mr.partsRead == 0 && len(rest) == 1 && rest[0] == '\n' {
+		mr.nl = mr.nl[1:]
+		mr.nlDashBoundary = mr.nlDashBoundary[1:]
 	}
-	return bytes.Equal(rest, r.nl)
+	return bytes.Equal(rest, mr.nl)
 }
 
 // skipLWSPChar returns b with leading spaces and tabs removed.
 // RFC 822 defines:
-//
-//	LWSP-char = SPACE / HTAB
+//    LWSP-char = SPACE / HTAB
 func skipLWSPChar(b []byte) []byte {
 	for len(b) > 0 && (b[0] == ' ' || b[0] == '\t') {
 		b = b[1:]

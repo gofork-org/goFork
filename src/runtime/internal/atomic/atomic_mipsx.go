@@ -5,7 +5,6 @@
 //go:build mips || mipsle
 
 // Export some functions via linkname to assembly in sync/atomic.
-//
 //go:linkname Xadd64
 //go:linkname Xchg64
 //go:linkname Cas64

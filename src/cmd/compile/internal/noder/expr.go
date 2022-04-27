@@ -6,7 +6,6 @@ package noder
 
 import (
 	"fmt"
-	"go/constant"
 
 	"cmd/compile/internal/base"
 	"cmd/compile/internal/ir"
@@ -63,14 +62,6 @@ func (g *irgen) expr(expr syntax.Expr) ir.Node {
 		case types2.UntypedNil:
 			// ok; can appear in type switch case clauses
 			// TODO(mdempsky): Handle as part of type switches instead?
-		case types2.UntypedInt, types2.UntypedFloat, types2.UntypedComplex:
-			// Untyped rhs of non-constant shift, e.g. x << 1.0.
-			// If we have a constant value, it must be an int >= 0.
-			if tv.Value != nil {
-				s := constant.ToInt(tv.Value)
-				assert(s.Kind() == constant.Int && constant.Sign(s) >= 0)
-			}
-			typ = types2.Typ[types2.Uint]
 		case types2.UntypedBool:
 			typ = types2.Typ[types2.Bool] // expression in "if" or "for" condition
 		case types2.UntypedString:
@@ -448,6 +439,7 @@ func (g *irgen) funcLit(typ2 types2.Type, expr *syntax.FuncLit) ir.Node {
 	for _, cv := range fn.ClosureVars {
 		cv.SetType(cv.Canonical().Type())
 		cv.SetTypecheck(1)
+		cv.SetWalkdef(1)
 	}
 
 	if g.topFuncIsGeneric {

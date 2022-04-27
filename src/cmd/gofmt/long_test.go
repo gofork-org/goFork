@@ -15,7 +15,6 @@ import (
 	"go/ast"
 	"go/printer"
 	"go/token"
-	"internal/testenv"
 	"io"
 	"io/fs"
 	"os"
@@ -114,8 +113,7 @@ func genFilenames(t *testing.T, filenames chan<- string) {
 			t.Error(err)
 			return nil
 		}
-		// don't descend into testdata directories
-		if isGoFile(d) && !strings.Contains(filepath.ToSlash(filename), "/testdata/") {
+		if isGoFile(d) {
 			filenames <- filename
 			nfiles++
 		}
@@ -132,11 +130,7 @@ func genFilenames(t *testing.T, filenames chan<- string) {
 	}
 
 	// otherwise, test all Go files under *root
-	goroot := *root
-	if goroot == "" {
-		goroot = testenv.GOROOT(t)
-	}
-	filepath.WalkDir(goroot, handleFile)
+	filepath.WalkDir(*root, handleFile)
 }
 
 func TestAll(t *testing.T) {

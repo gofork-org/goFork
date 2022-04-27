@@ -25,6 +25,7 @@ import (
 //
 // Using a nil Qualifier is equivalent to using (*Package).Path: the
 // object is qualified by the import path, e.g., "encoding/json.Marshal".
+//
 type Qualifier func(*Package) string
 
 // RelativeTo returns a Qualifier that fully qualifies members of

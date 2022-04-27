@@ -63,6 +63,4 @@ type Section struct {
 	Relcount uint32
 	Sym      LoaderSym // symbol for the section, if any
 	Index    uint16    // each section has a unique index, used internally
-
-	Compressed bool
 }

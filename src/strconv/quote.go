@@ -99,7 +99,7 @@ func appendEscapedRune(buf []byte, r rune, quote byte, ASCIIonly, graphicOnly bo
 		buf = append(buf, `\v`...)
 	default:
 		switch {
-		case r < ' ' || r == 0x7f:
+		case r < ' ':
 			buf = append(buf, `\x`...)
 			buf = append(buf, lowerhex[byte(r)>>4])
 			buf = append(buf, lowerhex[byte(r)&0xF])
@@ -165,8 +165,6 @@ func AppendQuoteToGraphic(dst []byte, s string) []byte {
 // QuoteRune returns a single-quoted Go character literal representing the
 // rune. The returned string uses Go escape sequences (\t, \n, \xFF, \u0100)
 // for control characters and non-printable characters as defined by IsPrint.
-// If r is not a valid Unicode code point, it is interpreted as the Unicode
-// replacement character U+FFFD.
 func QuoteRune(r rune) string {
 	return quoteRuneWith(r, '\'', false, false)
 }
@@ -181,8 +179,6 @@ func AppendQuoteRune(dst []byte, r rune) []byte {
 // the rune. The returned string uses Go escape sequences (\t, \n, \xFF,
 // \u0100) for non-ASCII characters and non-printable characters as defined
 // by IsPrint.
-// If r is not a valid Unicode code point, it is interpreted as the Unicode
-// replacement character U+FFFD.
 func QuoteRuneToASCII(r rune) string {
 	return quoteRuneWith(r, '\'', true, false)
 }
@@ -197,8 +193,6 @@ func AppendQuoteRuneToASCII(dst []byte, r rune) []byte {
 // the rune. If the rune is not a Unicode graphic character,
 // as defined by IsGraphic, the returned string will use a Go escape sequence
 // (\t, \n, \xFF, \u0100).
-// If r is not a valid Unicode code point, it is interpreted as the Unicode
-// replacement character U+FFFD.
 func QuoteRuneToGraphic(r rune) string {
 	return quoteRuneWith(r, '\'', false, true)
 }
@@ -249,10 +243,10 @@ func unhex(b byte) (v rune, ok bool) {
 // or character literal represented by the string s.
 // It returns four values:
 //
-//  1. value, the decoded Unicode code point or byte value;
-//  2. multibyte, a boolean indicating whether the decoded character requires a multibyte UTF-8 representation;
-//  3. tail, the remainder of the string after the character; and
-//  4. an error that will be nil if the character is syntactically valid.
+//	1) value, the decoded Unicode code point or byte value;
+//	2) multibyte, a boolean indicating whether the decoded character requires a multibyte UTF-8 representation;
+//	3) tail, the remainder of the string after the character; and
+//	4) an error that will be nil if the character is syntactically valid.
 //
 // The second argument, quote, specifies the type of literal being parsed
 // and therefore which escaped quote character is permitted.

@@ -10,12 +10,14 @@ package time
 
 import (
 	"errors"
+	"runtime"
 	"syscall"
 )
 
-var platformZoneSources = []string{
+var zoneSources = []string{
 	"/system/usr/share/zoneinfo/tzdata",
 	"/data/misc/zoneinfo/current/tzdata",
+	runtime.GOROOT() + "/lib/time/zoneinfo.zip",
 }
 
 func initLocal() {
@@ -25,15 +27,6 @@ func initLocal() {
 
 func init() {
 	loadTzinfoFromTzdata = androidLoadTzinfoFromTzdata
-}
-
-var allowGorootSource = true
-
-func gorootZoneSource(goroot string) (string, bool) {
-	if goroot == "" || !allowGorootSource {
-		return "", false
-	}
-	return goroot + "/lib/time/zoneinfo.zip", true
 }
 
 func androidLoadTzinfoFromTzdata(file, name string) ([]byte, error) {

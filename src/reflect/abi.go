@@ -7,6 +7,7 @@ package reflect
 import (
 	"internal/abi"
 	"internal/goarch"
+	"internal/goexperiment"
 	"unsafe"
 )
 
@@ -29,9 +30,9 @@ import (
 // commented out there should be the actual values once
 // we're ready to use the register ABI everywhere.
 var (
-	intArgRegs   = abi.IntArgRegs
-	floatArgRegs = abi.FloatArgRegs
-	floatRegSize = uintptr(abi.EffectiveFloatRegSize)
+	intArgRegs   = abi.IntArgRegs * goexperiment.RegabiArgsInt
+	floatArgRegs = abi.FloatArgRegs * goexperiment.RegabiArgsInt
+	floatRegSize = uintptr(abi.EffectiveFloatRegSize * goexperiment.RegabiArgsInt)
 )
 
 // abiStep represents an ABI "instruction." Each instruction

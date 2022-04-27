@@ -68,10 +68,8 @@ func TestCondRewrite(t *testing.T) {
 }
 
 // Profile the aforementioned optimization from two angles:
-//
-//	SoloJump: generated branching code has one 'jump', for '<' and '>='
-//	CombJump: generated branching code has two consecutive 'jump', for '<=' and '>'
-//
+//   SoloJump: generated branching code has one 'jump', for '<' and '>='
+//   CombJump: generated branching code has two consecutive 'jump', for '<=' and '>'
 // We expect that 'CombJump' is generally on par with the non-optimized code, and
 // 'SoloJump' demonstrates some improvement.
 // It's for arm64 initially, please see https://github.com/golang/go/issues/38740

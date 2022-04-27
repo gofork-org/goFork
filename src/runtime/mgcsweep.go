@@ -263,7 +263,7 @@ func finishsweep_m() {
 	// Sweeping is done, so if the scavenger isn't already awake,
 	// wake it up. There's definitely work for it to do at this
 	// point.
-	scavenger.wake()
+	wakeScavenger()
 
 	nextMarkBitArenaEpoch()
 }
@@ -387,7 +387,7 @@ func sweepone() uintptr {
 		// concurrent sweeps running, but we're at least very
 		// close to done sweeping.
 
-		// Move the scavenge gen forward (signaling
+		// Move the scavenge gen forward (signalling
 		// that there's new work to do) and wake the scavenger.
 		//
 		// The scavenger is signaled by the last sweeper because once
@@ -403,7 +403,10 @@ func sweepone() uintptr {
 			mheap_.pages.scavengeStartGen()
 			unlock(&mheap_.lock)
 		})
-		scavenger.ready()
+		// Since we might sweep in an allocation path, it's not possible
+		// for us to wake the scavenger directly via wakeScavenger, since
+		// it could allocate. Ask sysmon to do it for us instead.
+		readyForScavenger()
 	}
 
 	gp.m.locks--
@@ -421,7 +424,6 @@ func isSweepDone() bool {
 }
 
 // Returns only when span s has been swept.
-//
 //go:nowritebarrier
 func (s *mspan) ensureSwept() {
 	// Caller must disable preemption.

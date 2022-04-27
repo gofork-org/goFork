@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"internal/buildcfg"
 	exec "internal/execabs"
 	"internal/lazyregexp"
 	"io"
@@ -303,9 +304,7 @@ func (b *Builder) buildActionID(a *Action) cache.ActionID {
 			fmt.Fprintf(h, "fuzz %q\n", fuzzFlags)
 		}
 	}
-	if p.Internal.BuildInfo != "" {
-		fmt.Fprintf(h, "modinfo %q\n", p.Internal.BuildInfo)
-	}
+	fmt.Fprintf(h, "modinfo %q\n", p.Internal.BuildInfo)
 
 	// Configuration specific to compiler toolchain.
 	switch cfg.BuildToolchainName {
@@ -321,8 +320,8 @@ func (b *Builder) buildActionID(a *Action) cache.ActionID {
 		key, val := cfg.GetArchEnv()
 		fmt.Fprintf(h, "%s=%s\n", key, val)
 
-		if cfg.CleanGOEXPERIMENT != "" {
-			fmt.Fprintf(h, "GOEXPERIMENT=%q\n", cfg.CleanGOEXPERIMENT)
+		if goexperiment := buildcfg.GOEXPERIMENT(); goexperiment != "" {
+			fmt.Fprintf(h, "GOEXPERIMENT=%q\n", goexperiment)
 		}
 
 		// TODO(rsc): Convince compiler team not to add more magic environment variables,
@@ -561,7 +560,7 @@ func (b *Builder) build(ctx context.Context, a *Action) (err error) {
 		return nil
 	}
 
-	if err := AllowInstall(a); err != nil {
+	if err := allowInstall(a); err != nil {
 		return err
 	}
 
@@ -1302,8 +1301,8 @@ func (b *Builder) printLinkerConfig(h io.Writer, p *load.Package) {
 		key, val := cfg.GetArchEnv()
 		fmt.Fprintf(h, "%s=%s\n", key, val)
 
-		if cfg.CleanGOEXPERIMENT != "" {
-			fmt.Fprintf(h, "GOEXPERIMENT=%q\n", cfg.CleanGOEXPERIMENT)
+		if goexperiment := buildcfg.GOEXPERIMENT(); goexperiment != "" {
+			fmt.Fprintf(h, "GOEXPERIMENT=%q\n", goexperiment)
 		}
 
 		// The linker writes source file paths that say GOROOT_FINAL, but
@@ -1347,7 +1346,7 @@ func (b *Builder) link(ctx context.Context, a *Action) (err error) {
 		return err
 	}
 
-	if err := AllowInstall(a); err != nil {
+	if err := allowInstall(a); err != nil {
 		return err
 	}
 
@@ -1528,7 +1527,7 @@ func (b *Builder) getPkgConfigFlags(p *load.Package) (cflags, ldflags []string, 
 }
 
 func (b *Builder) installShlibname(ctx context.Context, a *Action) error {
-	if err := AllowInstall(a); err != nil {
+	if err := allowInstall(a); err != nil {
 		return err
 	}
 
@@ -1582,7 +1581,7 @@ func (b *Builder) linkShared(ctx context.Context, a *Action) (err error) {
 	}
 	defer b.flushOutput(a)
 
-	if err := AllowInstall(a); err != nil {
+	if err := allowInstall(a); err != nil {
 		return err
 	}
 
@@ -1653,7 +1652,7 @@ func BuildInstallFunc(b *Builder, ctx context.Context, a *Action) (err error) {
 		if !a.buggyInstall && !b.IsCmdList {
 			if cfg.BuildN {
 				b.Showcmd("", "touch %s", a.Target)
-			} else if err := AllowInstall(a); err == nil {
+			} else if err := allowInstall(a); err == nil {
 				now := time.Now()
 				os.Chtimes(a.Target, now, now)
 			}
@@ -1667,7 +1666,7 @@ func BuildInstallFunc(b *Builder, ctx context.Context, a *Action) (err error) {
 		a.built = a1.built
 		return nil
 	}
-	if err := AllowInstall(a); err != nil {
+	if err := allowInstall(a); err != nil {
 		return err
 	}
 
@@ -1699,12 +1698,12 @@ func BuildInstallFunc(b *Builder, ctx context.Context, a *Action) (err error) {
 	return b.moveOrCopyFile(a.Target, a1.built, perm, false)
 }
 
-// AllowInstall returns a non-nil error if this invocation of the go command is
+// allowInstall returns a non-nil error if this invocation of the go command is
 // allowed to install a.Target.
 //
-// The build of cmd/go running under its own test is forbidden from installing
-// to its original GOROOT. The var is exported so it can be set by TestMain.
-var AllowInstall = func(*Action) error { return nil }
+// (The build of cmd/go running under its own test is forbidden from installing
+// to its original GOROOT.)
+var allowInstall = func(*Action) error { return nil }
 
 // cleanup removes a's object dir to keep the amount of
 // on-disk garbage down in a large build. On an operating system
@@ -1869,7 +1868,7 @@ func (b *Builder) installHeader(ctx context.Context, a *Action) error {
 		return nil
 	}
 
-	if err := AllowInstall(a); err != nil {
+	if err := allowInstall(a); err != nil {
 		return err
 	}
 
@@ -1884,7 +1883,6 @@ func (b *Builder) installHeader(ctx context.Context, a *Action) error {
 }
 
 // cover runs, in effect,
-//
 //	go tool cover -mode=b.coverMode -var="varName" -o dst.go src.go
 func (b *Builder) cover(a *Action, dst, src string, varName string) error {
 	return b.run(a, a.Objdir, "cover "+a.Package.ImportPath, nil,
@@ -1951,6 +1949,7 @@ func mayberemovefile(s string) {
 //
 //	fmtcmd replaces the name of the current directory with dot (.)
 //	but only when it is at the beginning of a space-separated token.
+//
 func (b *Builder) fmtcmd(dir string, format string, args ...any) string {
 	cmd := fmt.Sprintf(format, args...)
 	if dir != "" && dir != "/" {
@@ -2007,6 +2006,7 @@ func (b *Builder) Showcmd(dir string, format string, args ...any) {
 //
 // If a is not nil and a.output is not nil, showOutput appends to that slice instead of
 // printing to b.Print.
+//
 func (b *Builder) showOutput(a *Action, dir, desc, out string) {
 	prefix := "# " + desc
 	suffix := "\n" + out
@@ -2116,10 +2116,8 @@ func (b *Builder) runOut(a *Action, dir string, env []string, cmdargs ...any) ([
 	cmd.Stderr = &buf
 	cleanup := passLongArgsInResponseFiles(cmd)
 	defer cleanup()
-	if dir != "." {
-		cmd.Dir = dir
-	}
-	cmd.Env = cmd.Environ() // Pre-allocate with correct PWD.
+	cmd.Dir = dir
+	cmd.Env = base.AppendPWD(os.Environ(), cmd.Dir)
 
 	// Add the TOOLEXEC_IMPORTPATH environment variable for -toolexec tools.
 	// It doesn't really matter if -toolexec isn't being used.
@@ -2608,7 +2606,8 @@ func (b *Builder) gccSupportsFlag(compiler []string, flag string) bool {
 	}
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Dir = b.WorkDir
-	cmd.Env = append(cmd.Environ(), "LC_ALL=C")
+	cmd.Env = base.AppendPWD(os.Environ(), cmd.Dir)
+	cmd.Env = append(cmd.Env, "LC_ALL=C")
 	out, _ := cmd.CombinedOutput()
 	// GCC says "unrecognized command line option".
 	// clang says "unknown argument".
@@ -3072,7 +3071,7 @@ var (
 )
 
 func (b *Builder) swigDoVersionCheck() error {
-	out, err := b.runOut(nil, ".", nil, "swig", "-version")
+	out, err := b.runOut(nil, "", nil, "swig", "-version")
 	if err != nil {
 		return err
 	}

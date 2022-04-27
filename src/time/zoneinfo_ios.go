@@ -7,20 +7,20 @@
 package time
 
 import (
+	"runtime"
 	"syscall"
 )
 
-var platformZoneSources []string // none on iOS
+var zoneSources = []string{
+	getZoneRoot() + "/zoneinfo.zip",
+}
 
-func gorootZoneSource(goroot string) (string, bool) {
+func getZoneRoot() string {
 	// The working directory at initialization is the root of the
 	// app bundle: "/private/.../bundlename.app". That's where we
 	// keep zoneinfo.zip for tethered iOS builds.
 	// For self-hosted iOS builds, the zoneinfo.zip is in GOROOT.
-	var roots []string
-	if goroot != "" {
-		roots = append(roots, goroot+"/lib/time")
-	}
+	roots := []string{runtime.GOROOT() + "/lib/time"}
 	wd, err := syscall.Getwd()
 	if err == nil {
 		roots = append(roots, wd)
@@ -33,10 +33,10 @@ func gorootZoneSource(goroot string) (string, bool) {
 		}
 		defer syscall.Close(fd)
 		if err := syscall.Fstat(fd, &st); err == nil {
-			return r + "/zoneinfo.zip", true
+			return r
 		}
 	}
-	return "", false
+	return "/XXXNOEXIST"
 }
 
 func initLocal() {

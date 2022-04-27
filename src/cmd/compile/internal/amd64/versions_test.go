@@ -8,7 +8,6 @@ import (
 	"bufio"
 	"debug/elf"
 	"debug/macho"
-	"errors"
 	"fmt"
 	"internal/testenv"
 	"io"
@@ -116,12 +115,9 @@ func clobber(t *testing.T, src string, dst *os.File, opcodes map[string]bool) {
 		var err error
 		disasm, err = cmd.StdoutPipe()
 		if err != nil {
-			t.Fatal(err)
+			t.Skipf("can't run test due to missing objdump: %s", err)
 		}
 		if err := cmd.Start(); err != nil {
-			if errors.Is(err, exec.ErrNotFound) {
-				t.Skipf("can't run test due to missing objdump: %s", err)
-			}
 			t.Fatal(err)
 		}
 		re = regexp.MustCompile(`^\s*([0-9a-f]+):\s*((?:[0-9a-f][0-9a-f] )+)\s*([a-z0-9]+)`)
@@ -239,11 +235,9 @@ var featureToOpcodes = map[string][]string{
 	// native objdump doesn't include [QL] on linux.
 	"popcnt": {"popcntq", "popcntl", "popcnt"},
 	"bmi1":   {"andnq", "andnl", "andn", "blsiq", "blsil", "blsi", "blsmskq", "blsmskl", "blsmsk", "blsrq", "blsrl", "blsr", "tzcntq", "tzcntl", "tzcnt"},
-	"bmi2":   {"sarxq", "sarxl", "sarx", "shlxq", "shlxl", "shlx", "shrxq", "shrxl", "shrx"},
 	"sse41":  {"roundsd"},
 	"fma":    {"vfmadd231sd"},
 	"movbe":  {"movbeqq", "movbeq", "movbell", "movbel", "movbe"},
-	"lzcnt":  {"lzcntq", "lzcntl", "lzcnt"},
 }
 
 // Test to use POPCNT instruction, if available

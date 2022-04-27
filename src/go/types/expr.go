@@ -87,7 +87,7 @@ func (check *Checker) op(m opPredicates, x *operand, op token.Token) bool {
 // overflow checks that the constant x is representable by its type.
 // For untyped constants, it checks that the value doesn't become
 // arbitrarily large.
-func (check *Checker) overflow(x *operand, opPos token.Pos) {
+func (check *Checker) overflow(x *operand, op token.Token, opPos token.Pos) {
 	assert(x.mode == constant_)
 
 	if x.val.Kind() == constant.Unknown {
@@ -115,8 +115,8 @@ func (check *Checker) overflow(x *operand, opPos token.Pos) {
 	}
 }
 
-// opName returns the name of the operation if x is an operation
-// that might overflow; otherwise it returns the empty string.
+// opName returns the name of an operation, or the empty string.
+// Only operations that might overflow are handled.
 func opName(e ast.Expr) string {
 	switch e := e.(type) {
 	case *ast.BinaryExpr:
@@ -213,7 +213,7 @@ func (check *Checker) unary(x *operand, e *ast.UnaryExpr) {
 		}
 		x.val = constant.UnaryOp(e.Op, x.val, prec)
 		x.expr = e
-		check.overflow(x, x.Pos())
+		check.overflow(x, e.Op, x.Pos())
 		return
 	}
 
@@ -991,7 +991,7 @@ func (check *Checker) shift(x, y *operand, e ast.Expr, op token.Token) {
 			if b, _ := e.(*ast.BinaryExpr); b != nil {
 				opPos = b.OpPos
 			}
-			check.overflow(x, opPos)
+			check.overflow(x, op, opPos)
 			return
 		}
 
@@ -1081,7 +1081,7 @@ func (check *Checker) binary(x *operand, e ast.Expr, lhs, rhs ast.Expr, op token
 
 	// TODO(gri) make canMix more efficient - called for each binary operation
 	canMix := func(x, y *operand) bool {
-		if isNonTypeParamInterface(x.typ) || isNonTypeParamInterface(y.typ) {
+		if IsInterface(x.typ) && !isTypeParam(x.typ) || IsInterface(y.typ) && !isTypeParam(y.typ) {
 			return true
 		}
 		if allBoolean(x.typ) != allBoolean(y.typ) {
@@ -1171,7 +1171,7 @@ func (check *Checker) binary(x *operand, e ast.Expr, lhs, rhs ast.Expr, op token
 		}
 		x.val = constant.BinaryOp(x.val, op, y.val)
 		x.expr = e
-		check.overflow(x, opPos)
+		check.overflow(x, op, opPos)
 		return
 	}
 
@@ -1194,9 +1194,10 @@ const (
 // If hint != nil, it is the type of a composite literal element.
 // If allowGeneric is set, the operand type may be an uninstantiated
 // parameterized type or function value.
+//
 func (check *Checker) rawExpr(x *operand, e ast.Expr, hint Type, allowGeneric bool) exprKind {
 	if trace {
-		check.trace(e.Pos(), "-- expr %s", e)
+		check.trace(e.Pos(), "expr %s", e)
 		check.indent++
 		defer func() {
 			check.indent--
@@ -1241,6 +1242,7 @@ func (check *Checker) nonGeneric(x *operand) {
 
 // exprInternal contains the core of type checking of expressions.
 // Must only be called by rawExpr.
+//
 func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 	// make sure x has a valid state in case of bailout
 	// (was issue 5770)
@@ -1303,7 +1305,7 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 				// but before the enclosing scope contents changes (#22992).
 				check.later(func() {
 					check.funcBody(decl, "<function literal>", sig, e.Body, iota)
-				}).describef(e, "func literal")
+				})
 			}
 			x.mode = value
 			x.typ = sig
@@ -1402,7 +1404,7 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 					}
 					check.expr(x, e)
 					if i >= len(fields) {
-						check.errorf(x, _InvalidStructLit, "too many values in %s{…}", base)
+						check.error(x, _InvalidStructLit, "too many values in struct literal")
 						break // cannot continue
 					}
 					// i < len(fields)
@@ -1417,7 +1419,7 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 					check.assignment(x, etyp, "struct literal")
 				}
 				if len(e.Elts) < len(fields) {
-					check.errorf(inNode(e, e.Rbrace), _InvalidStructLit, "too few values in %s{…}", base)
+					check.error(inNode(e, e.Rbrace), _InvalidStructLit, "too few values in struct literal")
 					// ok to continue
 				}
 			}
@@ -1466,10 +1468,6 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 				check.error(e, _InvalidTypeCycle, "illegal cycle in type declaration")
 				goto Error
 			}
-			// If the map key type is an interface (but not a type parameter),
-			// the type of a constant key must be considered when checking for
-			// duplicates.
-			keyIsInterface := isNonTypeParamInterface(utyp.key)
 			visited := make(map[any][]Type, len(e.Elts))
 			for _, e := range e.Elts {
 				kv, _ := e.(*ast.KeyValueExpr)
@@ -1484,8 +1482,9 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 				}
 				if x.mode == constant_ {
 					duplicate := false
+					// if the key is of interface type, the type is also significant when checking for duplicates
 					xkey := keyVal(x.val)
-					if keyIsInterface {
+					if IsInterface(utyp.key) {
 						for _, vtyp := range visited[xkey] {
 							if Identical(vtyp, x.typ) {
 								duplicate = true
@@ -1658,10 +1657,6 @@ Error:
 }
 
 func keyVal(x constant.Value) any {
-	// TODO(gri) This function must map 1, 1.0, and 1.0 + 0i to the same (integer) value.
-	//           Same for 1.1 and 1.1 + 0i.
-	//           Otherwise we won't get duplicate key errors for certain type parameter
-	//           key types. See issue #51610.
 	switch x.Kind() {
 	case constant.Bool:
 		return constant.BoolVal(x)
@@ -1705,6 +1700,7 @@ func (check *Checker) typeAssertion(e ast.Expr, x *operand, T Type, typeSwitch b
 // expr typechecks expression e and initializes x with the expression value.
 // The result must be a single value.
 // If an error occurred, x.mode is set to invalid.
+//
 func (check *Checker) expr(x *operand, e ast.Expr) {
 	check.rawExpr(x, e, nil, false)
 	check.exclude(x, 1<<novalue|1<<builtin|1<<typexpr)
@@ -1720,6 +1716,7 @@ func (check *Checker) multiExpr(x *operand, e ast.Expr) {
 // exprWithHint typechecks expression e and initializes x with the expression value;
 // hint is the type of a composite literal element.
 // If an error occurred, x.mode is set to invalid.
+//
 func (check *Checker) exprWithHint(x *operand, e ast.Expr, hint Type) {
 	assert(hint != nil)
 	check.rawExpr(x, e, hint, false)
@@ -1731,6 +1728,7 @@ func (check *Checker) exprWithHint(x *operand, e ast.Expr, hint Type) {
 // If allowGeneric is set, the operand type may be an uninstantiated parameterized type or function
 // value.
 // If an error occurred, x.mode is set to invalid.
+//
 func (check *Checker) exprOrType(x *operand, e ast.Expr, allowGeneric bool) {
 	check.rawExpr(x, e, nil, allowGeneric)
 	check.exclude(x, 1<<novalue)

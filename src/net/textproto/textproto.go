@@ -22,6 +22,7 @@
 //
 // Conn, a convenient packaging of Reader, Writer, and Pipeline for use
 // with a single network connection.
+//
 package textproto
 
 import (
@@ -109,6 +110,7 @@ func Dial(network, addr string) (*Conn, error) {
 //		return nil, err
 //	}
 //	return c.ReadCodeLine(250)
+//
 func (c *Conn) Cmd(format string, args ...any) (id uint, err error) {
 	id = c.Next()
 	c.StartRequest(id)

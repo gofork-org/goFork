@@ -192,8 +192,7 @@ func TestSetBytesRoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		b := tt.fe.Bytes()
-		fe, _ := new(Element).SetBytes(tt.b)
-		if !bytes.Equal(b, tt.b) || fe.Equal(&tt.fe) != 1 {
+		if !bytes.Equal(b, tt.b) || new(Element).SetBytes(tt.b).Equal(&tt.fe) != 1 {
 			t.Errorf("Failed fixed roundtrip: %v", tt)
 		}
 	}
@@ -218,8 +217,8 @@ func TestBytesBigEquivalence(t *testing.T) {
 			return false
 		}
 
-		buf := make([]byte, 32)
-		buf = swapEndianness(fe1.toBig().FillBytes(buf))
+		buf := make([]byte, 32) // pad with zeroes
+		copy(buf, swapEndianness(fe1.toBig().Bytes()))
 
 		return bytes.Equal(fe.Bytes(), buf) && isInBounds(&fe) && isInBounds(&fe1)
 	}
@@ -245,8 +244,7 @@ func (v *Element) fromBig(n *big.Int) *Element {
 		}
 	}
 
-	v.SetBytes(buf[:32])
-	return v
+	return v.SetBytes(buf[:32])
 }
 
 func (v *Element) fromDecimal(s string) *Element {
@@ -473,9 +471,9 @@ func TestSqrtRatio(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		u, _ := new(Element).SetBytes(decodeHex(tt.u))
-		v, _ := new(Element).SetBytes(decodeHex(tt.v))
-		want, _ := new(Element).SetBytes(decodeHex(tt.r))
+		u := new(Element).SetBytes(decodeHex(tt.u))
+		v := new(Element).SetBytes(decodeHex(tt.v))
+		want := new(Element).SetBytes(decodeHex(tt.r))
 		got, wasSquare := new(Element).SqrtRatio(u, v)
 		if got.Equal(want) == 0 || wasSquare != tt.wasSquare {
 			t.Errorf("%d: got (%v, %v), want (%v, %v)", i, got, wasSquare, want, tt.wasSquare)

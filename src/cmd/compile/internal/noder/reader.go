@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"go/constant"
 	"internal/buildcfg"
-	"internal/pkgbits"
 	"strings"
 
 	"cmd/compile/internal/base"
@@ -26,8 +25,14 @@ import (
 	"cmd/internal/src"
 )
 
+// TODO(mdempsky): Suppress duplicate type/const errors that can arise
+// during typecheck due to naive type substitution (e.g., see #42758).
+// I anticipate these will be handled as a consequence of adding
+// dictionaries support, so it's probably not important to focus on
+// this until after that's done.
+
 type pkgReader struct {
-	pkgbits.PkgDecoder
+	pkgDecoder
 
 	posBases []*src.PosBase
 	pkgs     []*types.Pkg
@@ -38,15 +43,15 @@ type pkgReader struct {
 	newindex []int
 }
 
-func newPkgReader(pr pkgbits.PkgDecoder) *pkgReader {
+func newPkgReader(pr pkgDecoder) *pkgReader {
 	return &pkgReader{
-		PkgDecoder: pr,
+		pkgDecoder: pr,
 
-		posBases: make([]*src.PosBase, pr.NumElems(pkgbits.RelocPosBase)),
-		pkgs:     make([]*types.Pkg, pr.NumElems(pkgbits.RelocPkg)),
-		typs:     make([]*types.Type, pr.NumElems(pkgbits.RelocType)),
+		posBases: make([]*src.PosBase, pr.numElems(relocPosBase)),
+		pkgs:     make([]*types.Pkg, pr.numElems(relocPkg)),
+		typs:     make([]*types.Type, pr.numElems(relocType)),
 
-		newindex: make([]int, pr.TotalElems()),
+		newindex: make([]int, pr.totalElems()),
 	}
 }
 
@@ -56,21 +61,21 @@ type pkgReaderIndex struct {
 	dict *readerDict
 }
 
-func (pri pkgReaderIndex) asReader(k pkgbits.RelocKind, marker pkgbits.SyncMarker) *reader {
+func (pri pkgReaderIndex) asReader(k reloc, marker syncMarker) *reader {
 	r := pri.pr.newReader(k, pri.idx, marker)
 	r.dict = pri.dict
 	return r
 }
 
-func (pr *pkgReader) newReader(k pkgbits.RelocKind, idx int, marker pkgbits.SyncMarker) *reader {
+func (pr *pkgReader) newReader(k reloc, idx int, marker syncMarker) *reader {
 	return &reader{
-		Decoder: pr.NewDecoder(k, idx, marker),
+		decoder: pr.newDecoder(k, idx, marker),
 		p:       pr,
 	}
 }
 
 type reader struct {
-	pkgbits.Decoder
+	decoder
 
 	p *pkgReader
 
@@ -141,13 +146,6 @@ type readerDict struct {
 
 	funcs    []objInfo
 	funcsObj []ir.Node
-
-	itabs []itabInfo2
-}
-
-type itabInfo2 struct {
-	typ  *types.Type
-	lsym *obj.LSym
 }
 
 func setType(n ir.Node, typ *types.Type) {
@@ -155,6 +153,7 @@ func setType(n ir.Node, typ *types.Type) {
 	n.SetTypecheck(1)
 
 	if name, ok := n.(*ir.Name); ok {
+		name.SetWalkdef(1)
 		name.Ntype = ir.TypeNode(name.Type())
 	}
 }
@@ -171,19 +170,19 @@ func (r *reader) pos() src.XPos {
 }
 
 func (r *reader) pos0() src.Pos {
-	r.Sync(pkgbits.SyncPos)
-	if !r.Bool() {
+	r.sync(syncPos)
+	if !r.bool() {
 		return src.NoPos
 	}
 
 	posBase := r.posBase()
-	line := r.Uint()
-	col := r.Uint()
+	line := r.uint()
+	col := r.uint()
 	return src.MakePos(posBase, line, col)
 }
 
 func (r *reader) posBase() *src.PosBase {
-	return r.inlPosBase(r.p.posBaseIdx(r.Reloc(pkgbits.RelocPosBase)))
+	return r.inlPosBase(r.p.posBaseIdx(r.reloc(relocPosBase)))
 }
 
 func (pr *pkgReader) posBaseIdx(idx int) *src.PosBase {
@@ -191,10 +190,10 @@ func (pr *pkgReader) posBaseIdx(idx int) *src.PosBase {
 		return b
 	}
 
-	r := pr.newReader(pkgbits.RelocPosBase, idx, pkgbits.SyncPosBase)
+	r := pr.newReader(relocPosBase, idx, syncPosBase)
 	var b *src.PosBase
 
-	absFilename := r.String()
+	absFilename := r.string()
 	filename := absFilename
 
 	// For build artifact stability, the export data format only
@@ -209,16 +208,16 @@ func (pr *pkgReader) posBaseIdx(idx int) *src.PosBase {
 	// require being more consistent about when we use native vs UNIX
 	// file paths.
 	const dollarGOROOT = "$GOROOT"
-	if buildcfg.GOROOT != "" && strings.HasPrefix(filename, dollarGOROOT) {
+	if strings.HasPrefix(filename, dollarGOROOT) {
 		filename = buildcfg.GOROOT + filename[len(dollarGOROOT):]
 	}
 
-	if r.Bool() {
+	if r.bool() {
 		b = src.NewFileBase(filename, absFilename)
 	} else {
 		pos := r.pos0()
-		line := r.Uint()
-		col := r.Uint()
+		line := r.uint()
+		col := r.uint()
 		b = src.NewLinePragmaBase(pos, filename, absFilename, line, col)
 	}
 
@@ -266,8 +265,8 @@ func (r *reader) origPos(xpos src.XPos) src.XPos {
 // @@@ Packages
 
 func (r *reader) pkg() *types.Pkg {
-	r.Sync(pkgbits.SyncPkg)
-	return r.p.pkgIdx(r.Reloc(pkgbits.RelocPkg))
+	r.sync(syncPkg)
+	return r.p.pkgIdx(r.reloc(relocPkg))
 }
 
 func (pr *pkgReader) pkgIdx(idx int) *types.Pkg {
@@ -275,22 +274,22 @@ func (pr *pkgReader) pkgIdx(idx int) *types.Pkg {
 		return pkg
 	}
 
-	pkg := pr.newReader(pkgbits.RelocPkg, idx, pkgbits.SyncPkgDef).doPkg()
+	pkg := pr.newReader(relocPkg, idx, syncPkgDef).doPkg()
 	pr.pkgs[idx] = pkg
 	return pkg
 }
 
 func (r *reader) doPkg() *types.Pkg {
-	path := r.String()
+	path := r.string()
 	if path == "builtin" {
 		return types.BuiltinPkg
 	}
 	if path == "" {
-		path = r.p.PkgPath()
+		path = r.p.pkgPath
 	}
 
-	name := r.String()
-	height := r.Len()
+	name := r.string()
+	height := r.len()
 
 	pkg := types.NewPkg(path, "")
 
@@ -322,11 +321,11 @@ func (r *reader) typWrapped(wrapped bool) *types.Type {
 }
 
 func (r *reader) typInfo() typeInfo {
-	r.Sync(pkgbits.SyncType)
-	if r.Bool() {
-		return typeInfo{idx: r.Len(), derived: true}
+	r.sync(syncType)
+	if r.bool() {
+		return typeInfo{idx: r.len(), derived: true}
 	}
-	return typeInfo{idx: r.Reloc(pkgbits.RelocType), derived: false}
+	return typeInfo{idx: r.reloc(relocType), derived: false}
 }
 
 func (pr *pkgReader) typIdx(info typeInfo, dict *readerDict, wrapped bool) *types.Type {
@@ -343,7 +342,7 @@ func (pr *pkgReader) typIdx(info typeInfo, dict *readerDict, wrapped bool) *type
 		return typ
 	}
 
-	r := pr.newReader(pkgbits.RelocType, idx, pkgbits.SyncTypeIdx)
+	r := pr.newReader(relocType, idx, syncTypeIdx)
 	r.dict = dict
 
 	typ := r.doTyp()
@@ -409,60 +408,46 @@ func (pr *pkgReader) typIdx(info typeInfo, dict *readerDict, wrapped bool) *type
 }
 
 func (r *reader) doTyp() *types.Type {
-	switch tag := pkgbits.CodeType(r.Code(pkgbits.SyncType)); tag {
+	switch tag := codeType(r.code(syncType)); tag {
 	default:
 		panic(fmt.Sprintf("unexpected type: %v", tag))
 
-	case pkgbits.TypeBasic:
-		return *basics[r.Len()]
+	case typeBasic:
+		return *basics[r.len()]
 
-	case pkgbits.TypeNamed:
+	case typeNamed:
 		obj := r.obj()
 		assert(obj.Op() == ir.OTYPE)
 		return obj.Type()
 
-	case pkgbits.TypeTypeParam:
-		return r.dict.targs[r.Len()]
+	case typeTypeParam:
+		return r.dict.targs[r.len()]
 
-	case pkgbits.TypeArray:
-		len := int64(r.Uint64())
+	case typeArray:
+		len := int64(r.uint64())
 		return types.NewArray(r.typ(), len)
-	case pkgbits.TypeChan:
-		dir := dirs[r.Len()]
+	case typeChan:
+		dir := dirs[r.len()]
 		return types.NewChan(r.typ(), dir)
-	case pkgbits.TypeMap:
+	case typeMap:
 		return types.NewMap(r.typ(), r.typ())
-	case pkgbits.TypePointer:
+	case typePointer:
 		return types.NewPtr(r.typ())
-	case pkgbits.TypeSignature:
+	case typeSignature:
 		return r.signature(types.LocalPkg, nil)
-	case pkgbits.TypeSlice:
+	case typeSlice:
 		return types.NewSlice(r.typ())
-	case pkgbits.TypeStruct:
+	case typeStruct:
 		return r.structType()
-	case pkgbits.TypeInterface:
+	case typeInterface:
 		return r.interfaceType()
-	case pkgbits.TypeUnion:
-		return r.unionType()
 	}
-}
-
-func (r *reader) unionType() *types.Type {
-	terms := make([]*types.Type, r.Len())
-	tildes := make([]bool, len(terms))
-	for i := range terms {
-		tildes[i] = r.Bool()
-		terms[i] = r.typ()
-	}
-	return types.NewUnion(terms, tildes)
 }
 
 func (r *reader) interfaceType() *types.Type {
 	tpkg := types.LocalPkg // TODO(mdempsky): Remove after iexport is gone.
 
-	nmethods, nembeddeds := r.Len(), r.Len()
-	implicit := nmethods == 0 && nembeddeds == 1 && r.Bool()
-	assert(!implicit) // implicit interfaces only appear in constraints
+	nmethods, nembeddeds := r.len(), r.len()
 
 	fields := make([]*types.Field, nmethods+nembeddeds)
 	methods, embeddeds := fields[:nmethods], fields[nmethods:]
@@ -486,14 +471,14 @@ func (r *reader) interfaceType() *types.Type {
 
 func (r *reader) structType() *types.Type {
 	tpkg := types.LocalPkg // TODO(mdempsky): Remove after iexport is gone.
-	fields := make([]*types.Field, r.Len())
+	fields := make([]*types.Field, r.len())
 	for i := range fields {
 		pos := r.pos()
 		pkg, sym := r.selector()
 		tpkg = pkg
 		ftyp := r.typ()
-		tag := r.String()
-		embedded := r.Bool()
+		tag := r.string()
+		embedded := r.bool()
 
 		f := types.NewField(pos, sym, ftyp)
 		f.Note = tag
@@ -506,11 +491,11 @@ func (r *reader) structType() *types.Type {
 }
 
 func (r *reader) signature(tpkg *types.Pkg, recv *types.Field) *types.Type {
-	r.Sync(pkgbits.SyncSignature)
+	r.sync(syncSignature)
 
 	params := r.params(&tpkg)
 	results := r.params(&tpkg)
-	if r.Bool() { // variadic
+	if r.bool() { // variadic
 		params[len(params)-1].SetIsDDD(true)
 	}
 
@@ -518,8 +503,8 @@ func (r *reader) signature(tpkg *types.Pkg, recv *types.Field) *types.Type {
 }
 
 func (r *reader) params(tpkg **types.Pkg) []*types.Field {
-	r.Sync(pkgbits.SyncParams)
-	fields := make([]*types.Field, r.Len())
+	r.sync(syncParams)
+	fields := make([]*types.Field, r.len())
 	for i := range fields {
 		*tpkg, fields[i] = r.param()
 	}
@@ -527,7 +512,7 @@ func (r *reader) params(tpkg **types.Pkg) []*types.Field {
 }
 
 func (r *reader) param() (*types.Pkg, *types.Field) {
-	r.Sync(pkgbits.SyncParam)
+	r.sync(syncParam)
 
 	pos := r.pos()
 	pkg, sym := r.localIdent()
@@ -541,10 +526,10 @@ func (r *reader) param() (*types.Pkg, *types.Field) {
 var objReader = map[*types.Sym]pkgReaderIndex{}
 
 func (r *reader) obj() ir.Node {
-	r.Sync(pkgbits.SyncObject)
+	r.sync(syncObject)
 
-	if r.Bool() {
-		idx := r.Len()
+	if r.bool() {
+		idx := r.len()
 		obj := r.dict.funcsObj[idx]
 		if obj == nil {
 			fn := r.dict.funcs[idx]
@@ -560,9 +545,9 @@ func (r *reader) obj() ir.Node {
 		return obj
 	}
 
-	idx := r.Reloc(pkgbits.RelocObj)
+	idx := r.reloc(relocObj)
 
-	explicits := make([]*types.Type, r.Len())
+	explicits := make([]*types.Type, r.len())
 	for i := range explicits {
 		explicits[i] = r.typ()
 	}
@@ -576,11 +561,11 @@ func (r *reader) obj() ir.Node {
 }
 
 func (pr *pkgReader) objIdx(idx int, implicits, explicits []*types.Type) ir.Node {
-	rname := pr.newReader(pkgbits.RelocName, idx, pkgbits.SyncObject1)
+	rname := pr.newReader(relocName, idx, syncObject1)
 	_, sym := rname.qualifiedIdent()
-	tag := pkgbits.CodeObj(rname.Code(pkgbits.SyncCodeObj))
+	tag := codeObj(rname.code(syncCodeObj))
 
-	if tag == pkgbits.ObjStub {
+	if tag == objStub {
 		assert(!sym.IsBlank())
 		switch sym.Pkg {
 		case types.BuiltinPkg, types.UnsafePkg:
@@ -589,13 +574,17 @@ func (pr *pkgReader) objIdx(idx int, implicits, explicits []*types.Type) ir.Node
 		if pri, ok := objReader[sym]; ok {
 			return pri.pr.objIdx(pri.idx, nil, explicits)
 		}
+		if haveLegacyImports {
+			assert(len(explicits) == 0)
+			return typecheck.Resolve(ir.NewIdent(src.NoXPos, sym))
+		}
 		base.Fatalf("unresolved stub: %v", sym)
 	}
 
 	dict := pr.objDictIdx(sym, idx, implicits, explicits)
 
-	r := pr.newReader(pkgbits.RelocObj, idx, pkgbits.SyncObject1)
-	rext := pr.newReader(pkgbits.RelocObjExt, idx, pkgbits.SyncObject1)
+	r := pr.newReader(relocObj, idx, syncObject1)
+	rext := pr.newReader(relocObjExt, idx, syncObject1)
 
 	r.dict = dict
 	rext.dict = dict
@@ -627,21 +616,21 @@ func (pr *pkgReader) objIdx(idx int, implicits, explicits []*types.Type) ir.Node
 	default:
 		panic("unexpected object")
 
-	case pkgbits.ObjAlias:
+	case objAlias:
 		name := do(ir.OTYPE, false)
 		setType(name, r.typ())
 		name.SetAlias(true)
 		return name
 
-	case pkgbits.ObjConst:
+	case objConst:
 		name := do(ir.OLITERAL, false)
 		typ := r.typ()
-		val := FixValue(typ, r.Value())
+		val := FixValue(typ, r.value())
 		setType(name, typ)
 		setValue(name, val)
 		return name
 
-	case pkgbits.ObjFunc:
+	case objFunc:
 		if sym.Name == "init" {
 			sym = renameinit()
 		}
@@ -651,14 +640,10 @@ func (pr *pkgReader) objIdx(idx int, implicits, explicits []*types.Type) ir.Node
 		name.Func = ir.NewFunc(r.pos())
 		name.Func.Nname = name
 
-		if r.hasTypeParams() {
-			name.Func.SetDupok(true)
-		}
-
 		rext.funcExt(name)
 		return name
 
-	case pkgbits.ObjType:
+	case objType:
 		name := do(ir.OTYPE, true)
 		typ := types.NewNamed(name)
 		setType(name, typ)
@@ -672,7 +657,7 @@ func (pr *pkgReader) objIdx(idx int, implicits, explicits []*types.Type) ir.Node
 		typ.SetUnderlying(r.typWrapped(false))
 		types.ResumeCheckSize()
 
-		methods := make([]*types.Field, r.Len())
+		methods := make([]*types.Field, r.len())
 		for i := range methods {
 			methods[i] = r.method(rext)
 		}
@@ -684,7 +669,7 @@ func (pr *pkgReader) objIdx(idx int, implicits, explicits []*types.Type) ir.Node
 
 		return name
 
-	case pkgbits.ObjVar:
+	case objVar:
 		name := do(ir.ONAME, false)
 		setType(name, r.typ())
 		rext.varExt(name)
@@ -715,12 +700,12 @@ func (r *reader) mangle(sym *types.Sym) *types.Sym {
 }
 
 func (pr *pkgReader) objDictIdx(sym *types.Sym, idx int, implicits, explicits []*types.Type) *readerDict {
-	r := pr.newReader(pkgbits.RelocObjDict, idx, pkgbits.SyncObject1)
+	r := pr.newReader(relocObjDict, idx, syncObject1)
 
 	var dict readerDict
 
-	nimplicits := r.Len()
-	nexplicits := r.Len()
+	nimplicits := r.len()
+	nexplicits := r.len()
 
 	if nimplicits > len(implicits) || nexplicits != len(explicits) {
 		base.Fatalf("%v has %v+%v params, but instantiated with %v+%v args", sym, nimplicits, nexplicits, len(implicits), len(explicits))
@@ -732,52 +717,36 @@ func (pr *pkgReader) objDictIdx(sym *types.Sym, idx int, implicits, explicits []
 	// For stenciling, we can just skip over the type parameters.
 	for range dict.targs[dict.implicits:] {
 		// Skip past bounds without actually evaluating them.
-		r.Sync(pkgbits.SyncType)
-		if r.Bool() {
-			r.Len()
+		r.sync(syncType)
+		if r.bool() {
+			r.len()
 		} else {
-			r.Reloc(pkgbits.RelocType)
+			r.reloc(relocType)
 		}
 	}
 
-	dict.derived = make([]derivedInfo, r.Len())
+	dict.derived = make([]derivedInfo, r.len())
 	dict.derivedTypes = make([]*types.Type, len(dict.derived))
 	for i := range dict.derived {
-		dict.derived[i] = derivedInfo{r.Reloc(pkgbits.RelocType), r.Bool()}
+		dict.derived[i] = derivedInfo{r.reloc(relocType), r.bool()}
 	}
 
-	dict.funcs = make([]objInfo, r.Len())
+	dict.funcs = make([]objInfo, r.len())
 	dict.funcsObj = make([]ir.Node, len(dict.funcs))
 	for i := range dict.funcs {
-		objIdx := r.Reloc(pkgbits.RelocObj)
-		targs := make([]typeInfo, r.Len())
+		objIdx := r.reloc(relocObj)
+		targs := make([]typeInfo, r.len())
 		for j := range targs {
 			targs[j] = r.typInfo()
 		}
 		dict.funcs[i] = objInfo{idx: objIdx, explicits: targs}
 	}
 
-	dict.itabs = make([]itabInfo2, r.Len())
-	for i := range dict.itabs {
-		typ := pr.typIdx(typeInfo{idx: r.Len(), derived: true}, &dict, true)
-		ifaceInfo := r.typInfo()
-
-		var lsym *obj.LSym
-		if typ.IsInterface() {
-			lsym = reflectdata.TypeLinksym(typ)
-		} else {
-			iface := pr.typIdx(ifaceInfo, &dict, true)
-			lsym = reflectdata.ITabLsym(typ, iface)
-		}
-
-		dict.itabs[i] = itabInfo2{typ: typ, lsym: lsym}
-	}
-
 	return &dict
 }
 
 func (r *reader) typeParamNames() {
-	r.Sync(pkgbits.SyncTypeParamNames)
+	r.sync(syncTypeParamNames)
 
 	for range r.dict.targs[r.dict.implicits:] {
 		r.pos()
@@ -786,7 +755,7 @@ func (r *reader) typeParamNames() {
 }
 
 func (r *reader) method(rext *reader) *types.Field {
-	r.Sync(pkgbits.SyncMethod)
+	r.sync(syncMethod)
 	pos := r.pos()
 	pkg, sym := r.selector()
 	r.typeParamNames()
@@ -801,10 +770,6 @@ func (r *reader) method(rext *reader) *types.Field {
 	name.Func = ir.NewFunc(r.pos())
 	name.Func.Nname = name
 
-	if r.hasTypeParams() {
-		name.Func.SetDupok(true)
-	}
-
 	rext.funcExt(name)
 
 	meth := types.NewField(name.Func.Pos(), sym, typ)
@@ -815,27 +780,27 @@ func (r *reader) method(rext *reader) *types.Field {
 }
 
 func (r *reader) qualifiedIdent() (pkg *types.Pkg, sym *types.Sym) {
-	r.Sync(pkgbits.SyncSym)
+	r.sync(syncSym)
 	pkg = r.pkg()
-	if name := r.String(); name != "" {
+	if name := r.string(); name != "" {
 		sym = pkg.Lookup(name)
 	}
 	return
 }
 
 func (r *reader) localIdent() (pkg *types.Pkg, sym *types.Sym) {
-	r.Sync(pkgbits.SyncLocalIdent)
+	r.sync(syncLocalIdent)
 	pkg = r.pkg()
-	if name := r.String(); name != "" {
+	if name := r.string(); name != "" {
 		sym = pkg.Lookup(name)
 	}
 	return
 }
 
 func (r *reader) selector() (origPkg *types.Pkg, sym *types.Sym) {
-	r.Sync(pkgbits.SyncSelector)
+	r.sync(syncSelector)
 	origPkg = r.pkg()
-	name := r.String()
+	name := r.string()
 	pkg := origPkg
 	if types.IsExported(name) {
 		pkg = types.LocalPkg
@@ -855,7 +820,7 @@ func (dict *readerDict) hasTypeParams() bool {
 // @@@ Compiler extensions
 
 func (r *reader) funcExt(name *ir.Name) {
-	r.Sync(pkgbits.SyncFuncExt)
+	r.sync(syncFuncExt)
 
 	name.Class = 0 // so MarkFunc doesn't complain
 	ir.MarkFunc(name)
@@ -883,31 +848,31 @@ func (r *reader) funcExt(name *ir.Name) {
 
 	typecheck.Func(fn)
 
-	if r.Bool() {
-		fn.ABI = obj.ABI(r.Uint64())
+	if r.bool() {
+		fn.ABI = obj.ABI(r.uint64())
 
 		// Escape analysis.
 		for _, fs := range &types.RecvsParams {
 			for _, f := range fs(name.Type()).FieldSlice() {
-				f.Note = r.String()
+				f.Note = r.string()
 			}
 		}
 
-		if r.Bool() {
+		if r.bool() {
 			fn.Inl = &ir.Inline{
-				Cost:            int32(r.Len()),
-				CanDelayResults: r.Bool(),
+				Cost:            int32(r.len()),
+				CanDelayResults: r.bool(),
 			}
 			r.addBody(name.Func)
 		}
 	} else {
 		r.addBody(name.Func)
 	}
-	r.Sync(pkgbits.SyncEOF)
+	r.sync(syncEOF)
 }
 
 func (r *reader) typeExt(name *ir.Name) {
-	r.Sync(pkgbits.SyncTypeExt)
+	r.sync(syncTypeExt)
 
 	typ := name.Type()
 
@@ -926,30 +891,30 @@ func (r *reader) typeExt(name *ir.Name) {
 		typ.SetNotInHeap(true)
 	}
 
-	typecheck.SetBaseTypeIndex(typ, r.Int64(), r.Int64())
+	typecheck.SetBaseTypeIndex(typ, r.int64(), r.int64())
 }
 
 func (r *reader) varExt(name *ir.Name) {
-	r.Sync(pkgbits.SyncVarExt)
+	r.sync(syncVarExt)
 	r.linkname(name)
 }
 
 func (r *reader) linkname(name *ir.Name) {
 	assert(name.Op() == ir.ONAME)
-	r.Sync(pkgbits.SyncLinkname)
+	r.sync(syncLinkname)
 
-	if idx := r.Int64(); idx >= 0 {
+	if idx := r.int64(); idx >= 0 {
 		lsym := name.Linksym()
 		lsym.SymIdx = int32(idx)
 		lsym.Set(obj.AttrIndexed, true)
 	} else {
-		name.Sym().Linkname = r.String()
+		name.Sym().Linkname = r.string()
 	}
 }
 
 func (r *reader) pragmaFlag() ir.PragmaFlag {
-	r.Sync(pkgbits.SyncPragma)
-	return ir.PragmaFlag(r.Int())
+	r.sync(syncPragma)
+	return ir.PragmaFlag(r.int())
 }
 
 // @@@ Function bodies
@@ -962,8 +927,13 @@ var bodyReader = map[*ir.Func]pkgReaderIndex{}
 // constructed.
 var todoBodies []*ir.Func
 
+// todoBodiesDone signals that we constructed all function in todoBodies.
+// This is necessary to prevent reader.addBody adds thing to todoBodies
+// when nested inlining happens.
+var todoBodiesDone = false
+
 func (r *reader) addBody(fn *ir.Func) {
-	pri := pkgReaderIndex{r.p, r.Reloc(pkgbits.RelocBody), r.dict}
+	pri := pkgReaderIndex{r.p, r.reloc(relocBody), r.dict}
 	bodyReader[fn] = pri
 
 	if fn.Nname.Defn == nil {
@@ -972,7 +942,7 @@ func (r *reader) addBody(fn *ir.Func) {
 		return
 	}
 
-	if r.curfn == nil {
+	if r.curfn == nil && !todoBodiesDone {
 		todoBodies = append(todoBodies, fn)
 		return
 	}
@@ -981,7 +951,7 @@ func (r *reader) addBody(fn *ir.Func) {
 }
 
 func (pri pkgReaderIndex) funcBody(fn *ir.Func) {
-	r := pri.asReader(pkgbits.RelocBody, pkgbits.SyncFuncBody)
+	r := pri.asReader(relocBody, syncFuncBody)
 	r.funcBody(fn)
 }
 
@@ -992,13 +962,17 @@ func (r *reader) funcBody(fn *ir.Func) {
 	ir.WithFunc(fn, func() {
 		r.funcargs(fn)
 
-		if !r.Bool() {
+		if !r.bool() {
 			return
 		}
 
 		body := r.stmts()
 		if body == nil {
-			body = []ir.Node{typecheck.Stmt(ir.NewBlockStmt(src.NoXPos, nil))}
+			pos := src.NoXPos
+			if quirksMode() {
+				pos = funcParamsEndPos(fn)
+			}
+			body = []ir.Node{typecheck.Stmt(ir.NewBlockStmt(pos, nil))}
 		}
 		fn.Body = body
 		fn.Endlineno = r.pos()
@@ -1064,9 +1038,9 @@ func (r *reader) funcarg(param *types.Field, sym *types.Sym, ctxt ir.Class) {
 func (r *reader) addLocal(name *ir.Name, ctxt ir.Class) {
 	assert(ctxt == ir.PAUTO || ctxt == ir.PPARAM || ctxt == ir.PPARAMOUT)
 
-	r.Sync(pkgbits.SyncAddLocal)
-	if pkgbits.EnableSync {
-		want := r.Int()
+	r.sync(syncAddLocal)
+	if enableSync {
+		want := r.int()
 		if have := len(r.locals); have != want {
 			base.FatalfAt(name.Pos(), "locals table has desynced")
 		}
@@ -1107,15 +1081,15 @@ func (r *reader) addLocal(name *ir.Name, ctxt ir.Class) {
 }
 
 func (r *reader) useLocal() *ir.Name {
-	r.Sync(pkgbits.SyncUseObjLocal)
-	if r.Bool() {
-		return r.locals[r.Len()]
+	r.sync(syncUseObjLocal)
+	if r.bool() {
+		return r.locals[r.len()]
 	}
-	return r.closureVars[r.Len()]
+	return r.closureVars[r.len()]
 }
 
 func (r *reader) openScope() {
-	r.Sync(pkgbits.SyncOpenScope)
+	r.sync(syncOpenScope)
 	pos := r.pos()
 
 	if base.Flag.Dwarf {
@@ -1125,7 +1099,7 @@ func (r *reader) openScope() {
 }
 
 func (r *reader) closeScope() {
-	r.Sync(pkgbits.SyncCloseScope)
+	r.sync(syncCloseScope)
 	r.lastCloseScopePos = r.pos()
 
 	r.closeAnotherScope()
@@ -1136,7 +1110,7 @@ func (r *reader) closeScope() {
 // "if" statements, as their implicit blocks always end at the same
 // position as an explicit block.
 func (r *reader) closeAnotherScope() {
-	r.Sync(pkgbits.SyncCloseAnotherScope)
+	r.sync(syncCloseAnotherScope)
 
 	if base.Flag.Dwarf {
 		scopeVars := r.scopeVars[len(r.scopeVars)-1]
@@ -1203,11 +1177,11 @@ func (r *reader) stmts() []ir.Node {
 	assert(ir.CurFunc == r.curfn)
 	var res ir.Nodes
 
-	r.Sync(pkgbits.SyncStmts)
+	r.sync(syncStmts)
 	for {
-		tag := codeStmt(r.Code(pkgbits.SyncStmt1))
+		tag := codeStmt(r.code(syncStmt1))
 		if tag == stmtEnd {
-			r.Sync(pkgbits.SyncStmtsEnd)
+			r.sync(syncStmtsEnd)
 			return res
 		}
 
@@ -1317,15 +1291,27 @@ func (r *reader) stmt1(tag codeStmt, out *ir.Nodes) ir.Node {
 
 	case stmtSwitch:
 		return r.switchStmt(label)
+
+	case stmtTypeDeclHack:
+		// fake "type _ = int" declaration to prevent inlining in quirks mode.
+		assert(quirksMode())
+
+		name := ir.NewDeclNameAt(src.NoXPos, ir.OTYPE, ir.BlankNode.Sym())
+		name.SetAlias(true)
+		setType(name, types.Types[types.TINT])
+
+		n := ir.NewDecl(src.NoXPos, ir.ODCLTYPE, name)
+		n.SetTypecheck(1)
+		return n
 	}
 }
 
 func (r *reader) assignList() ([]*ir.Name, []ir.Node) {
-	lhs := make([]ir.Node, r.Len())
+	lhs := make([]ir.Node, r.len())
 	var names []*ir.Name
 
 	for i := range lhs {
-		if r.Bool() {
+		if r.bool() {
 			pos := r.pos()
 			_, sym := r.localIdent()
 			typ := r.typ()
@@ -1345,7 +1331,7 @@ func (r *reader) assignList() ([]*ir.Name, []ir.Node) {
 }
 
 func (r *reader) blockStmt() []ir.Node {
-	r.Sync(pkgbits.SyncBlockStmt)
+	r.sync(syncBlockStmt)
 	r.openScope()
 	stmts := r.stmts()
 	r.closeScope()
@@ -1353,11 +1339,11 @@ func (r *reader) blockStmt() []ir.Node {
 }
 
 func (r *reader) forStmt(label *types.Sym) ir.Node {
-	r.Sync(pkgbits.SyncForStmt)
+	r.sync(syncForStmt)
 
 	r.openScope()
 
-	if r.Bool() {
+	if r.bool() {
 		pos := r.pos()
 
 		// TODO(mdempsky): After quirks mode is gone, swap these
@@ -1393,7 +1379,7 @@ func (r *reader) forStmt(label *types.Sym) ir.Node {
 }
 
 func (r *reader) ifStmt() ir.Node {
-	r.Sync(pkgbits.SyncIfStmt)
+	r.sync(syncIfStmt)
 	r.openScope()
 	pos := r.pos()
 	init := r.stmts()
@@ -1407,10 +1393,10 @@ func (r *reader) ifStmt() ir.Node {
 }
 
 func (r *reader) selectStmt(label *types.Sym) ir.Node {
-	r.Sync(pkgbits.SyncSelectStmt)
+	r.sync(syncSelectStmt)
 
 	pos := r.pos()
-	clauses := make([]*ir.CommClause, r.Len())
+	clauses := make([]*ir.CommClause, r.len())
 	for i := range clauses {
 		if i > 0 {
 			r.closeScope()
@@ -1432,30 +1418,33 @@ func (r *reader) selectStmt(label *types.Sym) ir.Node {
 }
 
 func (r *reader) switchStmt(label *types.Sym) ir.Node {
-	r.Sync(pkgbits.SyncSwitchStmt)
+	r.sync(syncSwitchStmt)
 
 	r.openScope()
 	pos := r.pos()
 	init := r.stmt()
 
 	var tag ir.Node
-	var ident *ir.Ident
-	var iface *types.Type
-	if r.Bool() {
+	if r.bool() {
 		pos := r.pos()
-		if r.Bool() {
+		var ident *ir.Ident
+		if r.bool() {
 			pos := r.pos()
-			sym := typecheck.Lookup(r.String())
+			sym := typecheck.Lookup(r.string())
 			ident = ir.NewIdent(pos, sym)
 		}
 		x := r.expr()
-		iface = x.Type()
 		tag = ir.NewTypeSwitchGuard(pos, ident, x)
 	} else {
 		tag = r.expr()
 	}
 
-	clauses := make([]*ir.CaseClause, r.Len())
+	tswitch, ok := tag.(*ir.TypeSwitchGuard)
+	if ok && tswitch.Tag == nil {
+		tswitch = nil
+	}
+
+	clauses := make([]*ir.CaseClause, r.len())
 	for i := range clauses {
 		if i > 0 {
 			r.closeScope()
@@ -1463,30 +1452,18 @@ func (r *reader) switchStmt(label *types.Sym) ir.Node {
 		r.openScope()
 
 		pos := r.pos()
-		var cases []ir.Node
-		if iface != nil {
-			cases = make([]ir.Node, r.Len())
-			if len(cases) == 0 {
-				cases = nil // TODO(mdempsky): Unclear if this matters.
-			}
-			for i := range cases {
-				cases[i] = r.exprType(true)
-			}
-		} else {
-			cases = r.exprList()
-		}
+		cases := r.exprList()
 
 		clause := ir.NewCaseStmt(pos, cases, nil)
-
-		if ident != nil {
+		if tswitch != nil {
 			pos := r.pos()
 			typ := r.typ()
 
-			name := ir.NewNameAt(pos, ident.Sym())
+			name := ir.NewNameAt(pos, tswitch.Tag.Sym())
 			setType(name, typ)
 			r.addLocal(name, ir.PAUTO)
 			clause.Var = name
-			name.Defn = tag
+			name.Defn = tswitch
 		}
 
 		clause.Body = r.stmts()
@@ -1506,8 +1483,8 @@ func (r *reader) switchStmt(label *types.Sym) ir.Node {
 }
 
 func (r *reader) label() *types.Sym {
-	r.Sync(pkgbits.SyncLabel)
-	name := r.String()
+	r.sync(syncLabel)
+	name := r.string()
 	if r.inlCall != nil {
 		name = fmt.Sprintf("~%s·%d", name, inlgen)
 	}
@@ -1515,8 +1492,8 @@ func (r *reader) label() *types.Sym {
 }
 
 func (r *reader) optLabel() *types.Sym {
-	r.Sync(pkgbits.SyncOptLabel)
-	if r.Bool() {
+	r.sync(syncOptLabel)
+	if r.bool() {
 		return r.label()
 	}
 	return nil
@@ -1549,7 +1526,7 @@ func (r *reader) expr() (res ir.Node) {
 		}
 	}()
 
-	switch tag := codeExpr(r.Code(pkgbits.SyncExpr)); tag {
+	switch tag := codeExpr(r.code(syncExpr)); tag {
 	default:
 		panic("unhandled expression")
 
@@ -1570,14 +1547,17 @@ func (r *reader) expr() (res ir.Node) {
 		return typecheck.Callee(r.obj())
 
 	case exprType:
-		return r.exprType(false)
+		// TODO(mdempsky): ir.TypeNode should probably return a typecheck'd node.
+		n := ir.TypeNode(r.typ())
+		n.SetTypecheck(1)
+		return n
 
 	case exprConst:
 		pos := r.pos()
 		typ := r.typ()
-		val := FixValue(typ, r.Value())
+		val := FixValue(typ, r.value())
 		op := r.op()
-		orig := r.String()
+		orig := r.string()
 		return typecheck.Expr(OrigConst(pos, typ, val, op, orig))
 
 	case exprCompLit:
@@ -1590,15 +1570,6 @@ func (r *reader) expr() (res ir.Node) {
 		x := r.expr()
 		pos := r.pos()
 		_, sym := r.selector()
-
-		// Method expression with derived receiver type.
-		if x.Op() == ir.ODYNAMICTYPE {
-			// TODO(mdempsky): Handle with runtime dictionary lookup.
-			n := ir.TypeNode(x.Type())
-			n.SetTypecheck(1)
-			x = n
-		}
-
 		n := typecheck.Expr(ir.NewSelectorExpr(pos, ir.OXDOT, x, sym)).(*ir.SelectorExpr)
 		if n.Op() == ir.OMETHVALUE {
 			wrapper := methodValueWrapper{
@@ -1635,12 +1606,8 @@ func (r *reader) expr() (res ir.Node) {
 	case exprAssert:
 		x := r.expr()
 		pos := r.pos()
-		typ := r.exprType(false)
-
-		if typ, ok := typ.(*ir.DynamicType); ok && typ.Op() == ir.ODYNAMICTYPE {
-			return typed(typ.Type(), ir.NewDynamicTypeAssertExpr(pos, ir.ODYNAMICDOTTYPE, x, typ.X))
-		}
-		return typecheck.Expr(ir.NewTypeAssertExpr(pos, x, typ.(ir.Ntype)))
+		typ := r.expr().(ir.Ntype)
+		return typecheck.Expr(ir.NewTypeAssertExpr(pos, x, typ))
 
 	case exprUnaryOp:
 		op := r.op()
@@ -1669,40 +1636,26 @@ func (r *reader) expr() (res ir.Node) {
 
 	case exprCall:
 		fun := r.expr()
-		if r.Bool() { // method call
+		if r.bool() { // method call
 			pos := r.pos()
 			_, sym := r.selector()
 			fun = typecheck.Callee(ir.NewSelectorExpr(pos, ir.OXDOT, fun, sym))
 		}
 		pos := r.pos()
 		args := r.exprs()
-		dots := r.Bool()
+		dots := r.bool()
 		return typecheck.Call(pos, fun, args, dots)
 
 	case exprConvert:
 		typ := r.typ()
 		pos := r.pos()
 		x := r.expr()
-
-		// TODO(mdempsky): Stop constructing expressions of untyped type.
-		x = typecheck.DefaultLit(x, typ)
-
-		if op, why := typecheck.Convertop(x.Op() == ir.OLITERAL, x.Type(), typ); op == ir.OXXX {
-			// types2 ensured that x is convertable to typ under standard Go
-			// semantics, but cmd/compile also disallows some conversions
-			// involving //go:notinheap.
-			//
-			// TODO(mdempsky): This can be removed after #46731 is implemented.
-			base.ErrorfAt(pos, "cannot convert %L to type %v%v", x, typ, why)
-			base.ErrorExit() // harsh, but prevents constructing invalid IR
-		}
-
 		return typecheck.Expr(ir.NewConvExpr(pos, ir.OCONV, typ, x))
 	}
 }
 
 func (r *reader) compLit() ir.Node {
-	r.Sync(pkgbits.SyncCompLit)
+	r.sync(syncCompLit)
 	pos := r.pos()
 	typ0 := r.typ()
 
@@ -1715,14 +1668,14 @@ func (r *reader) compLit() ir.Node {
 	}
 	isStruct := typ.Kind() == types.TSTRUCT
 
-	elems := make([]ir.Node, r.Len())
+	elems := make([]ir.Node, r.len())
 	for i := range elems {
 		elemp := &elems[i]
 
 		if isStruct {
-			sk := ir.NewStructKeyExpr(r.pos(), typ.Field(r.Len()), nil)
+			sk := ir.NewStructKeyExpr(r.pos(), typ.Field(r.len()), nil)
 			*elemp, elemp = sk, &sk.Value
-		} else if r.Bool() {
+		} else if r.bool() {
 			kv := ir.NewKeyExpr(r.pos(), r.expr(), nil)
 			*elemp, elemp = kv, &kv.Value
 		}
@@ -1747,7 +1700,7 @@ func wrapName(pos src.XPos, x ir.Node) ir.Node {
 			break
 		}
 		fallthrough
-	case ir.ONAME, ir.ONONAME, ir.ONIL:
+	case ir.ONAME, ir.ONONAME, ir.OPACK, ir.ONIL:
 		p := ir.NewParenExpr(pos, x)
 		p.SetImplicit(true)
 		return p
@@ -1756,22 +1709,29 @@ func wrapName(pos src.XPos, x ir.Node) ir.Node {
 }
 
 func (r *reader) funcLit() ir.Node {
-	r.Sync(pkgbits.SyncFuncLit)
+	r.sync(syncFuncLit)
 
 	pos := r.pos()
+	typPos := r.pos()
 	xtype2 := r.signature(types.LocalPkg, nil)
 
 	opos := pos
+	if quirksMode() {
+		opos = r.origPos(pos)
+	}
 
 	fn := ir.NewClosureFunc(opos, r.curfn != nil)
 	clo := fn.OClosure
 	ir.NameClosure(clo, r.curfn)
 
 	setType(fn.Nname, xtype2)
+	if quirksMode() {
+		fn.Nname.Ntype = ir.TypeNodeAt(typPos, xtype2)
+	}
 	typecheck.Func(fn)
 	setType(clo, fn.Type())
 
-	fn.ClosureVars = make([]*ir.Name, 0, r.Len())
+	fn.ClosureVars = make([]*ir.Name, 0, r.len())
 	for len(fn.ClosureVars) < cap(fn.ClosureVars) {
 		ir.NewClosureVar(r.pos(), fn, r.useLocal())
 	}
@@ -1783,13 +1743,13 @@ func (r *reader) funcLit() ir.Node {
 }
 
 func (r *reader) exprList() []ir.Node {
-	r.Sync(pkgbits.SyncExprList)
+	r.sync(syncExprList)
 	return r.exprs()
 }
 
 func (r *reader) exprs() []ir.Node {
-	r.Sync(pkgbits.SyncExprs)
-	nodes := make([]ir.Node, r.Len())
+	r.sync(syncExprs)
+	nodes := make([]ir.Node, r.len())
 	if len(nodes) == 0 {
 		return nil // TODO(mdempsky): Unclear if this matters.
 	}
@@ -1799,62 +1759,46 @@ func (r *reader) exprs() []ir.Node {
 	return nodes
 }
 
-func (r *reader) exprType(nilOK bool) ir.Node {
-	r.Sync(pkgbits.SyncExprType)
-
-	if nilOK && r.Bool() {
-		return typecheck.Expr(types.BuiltinPkg.Lookup("nil").Def.(*ir.NilExpr))
-	}
-
-	pos := r.pos()
-
-	var typ *types.Type
-	var lsym *obj.LSym
-
-	if r.Bool() {
-		itab := r.dict.itabs[r.Len()]
-		typ, lsym = itab.typ, itab.lsym
-	} else {
-		info := r.typInfo()
-		typ = r.p.typIdx(info, r.dict, true)
-
-		if !info.derived {
-			// TODO(mdempsky): ir.TypeNode should probably return a typecheck'd node.
-			n := ir.TypeNode(typ)
-			n.SetTypecheck(1)
-			return n
-		}
-
-		lsym = reflectdata.TypeLinksym(typ)
-	}
-
-	ptr := typecheck.Expr(typecheck.NodAddr(ir.NewLinksymExpr(pos, lsym, types.Types[types.TUINT8])))
-	return typed(typ, ir.NewDynamicType(pos, ptr))
-}
-
 func (r *reader) op() ir.Op {
-	r.Sync(pkgbits.SyncOp)
-	return ir.Op(r.Len())
+	r.sync(syncOp)
+	return ir.Op(r.len())
 }
 
 // @@@ Package initialization
 
 func (r *reader) pkgInit(self *types.Pkg, target *ir.Package) {
-	cgoPragmas := make([][]string, r.Len())
+	if quirksMode() {
+		for i, n := 0, r.len(); i < n; i++ {
+			// Eagerly register position bases, so their filenames are
+			// assigned stable indices.
+			posBase := r.posBase()
+			_ = base.Ctxt.PosTable.XPos(src.MakePos(posBase, 0, 0))
+		}
+
+		for i, n := 0, r.len(); i < n; i++ {
+			// Eagerly resolve imported objects, so any filenames registered
+			// in the process are assigned stable indices too.
+			_, sym := r.qualifiedIdent()
+			typecheck.Resolve(ir.NewIdent(src.NoXPos, sym))
+			assert(sym.Def != nil)
+		}
+	}
+
+	cgoPragmas := make([][]string, r.len())
 	for i := range cgoPragmas {
-		cgoPragmas[i] = r.Strings()
+		cgoPragmas[i] = r.strings()
 	}
 	target.CgoPragmas = cgoPragmas
 
 	r.pkgDecls(target)
 
-	r.Sync(pkgbits.SyncEOF)
+	r.sync(syncEOF)
 }
 
 func (r *reader) pkgDecls(target *ir.Package) {
-	r.Sync(pkgbits.SyncDecls)
+	r.sync(syncDecls)
 	for {
-		switch code := codeDecl(r.Code(pkgbits.SyncDecl)); code {
+		switch code := codeDecl(r.code(syncDecl)); code {
 		default:
 			panic(fmt.Sprintf("unhandled decl: %v", code))
 
@@ -1896,11 +1840,11 @@ func (r *reader) pkgDecls(target *ir.Package) {
 				}
 			}
 
-			if n := r.Len(); n > 0 {
+			if n := r.len(); n > 0 {
 				assert(len(names) == 1)
 				embeds := make([]ir.Embed, n)
 				for i := range embeds {
-					embeds[i] = ir.Embed{Pos: r.pos(), Patterns: r.Strings()}
+					embeds[i] = ir.Embed{Pos: r.pos(), Patterns: r.strings()}
 				}
 				names[0].Embed = &embeds
 				target.Embeds = append(target.Embeds, names[0])
@@ -1913,10 +1857,10 @@ func (r *reader) pkgDecls(target *ir.Package) {
 }
 
 func (r *reader) pkgObjs(target *ir.Package) []*ir.Name {
-	r.Sync(pkgbits.SyncDeclNames)
-	nodes := make([]*ir.Name, r.Len())
+	r.sync(syncDeclNames)
+	nodes := make([]*ir.Name, r.len())
 	for i := range nodes {
-		r.Sync(pkgbits.SyncDeclName)
+		r.sync(syncDeclName)
 
 		name := r.obj().(*ir.Name)
 		nodes[i] = name
@@ -1968,6 +1912,12 @@ func InlineCall(call *ir.CallExpr, fn *ir.Func, inlIndex int) *ir.InlinedCallExp
 
 	pri, ok := bodyReader[fn]
 	if !ok {
+		// Assume it's an imported function or something that we don't
+		// have access to in quirks mode.
+		if haveLegacyImports {
+			return nil
+		}
+
 		base.FatalfAt(call.Pos(), "missing function body for call to %v", fn)
 	}
 
@@ -1975,7 +1925,7 @@ func InlineCall(call *ir.CallExpr, fn *ir.Func, inlIndex int) *ir.InlinedCallExp
 		expandInline(fn, pri)
 	}
 
-	r := pri.asReader(pkgbits.RelocBody, pkgbits.SyncFuncBody)
+	r := pri.asReader(relocBody, syncFuncBody)
 
 	// TODO(mdempsky): This still feels clumsy. Can we do better?
 	tmpfn := ir.NewFunc(fn.Pos())
@@ -1999,7 +1949,7 @@ func InlineCall(call *ir.CallExpr, fn *ir.Func, inlIndex int) *ir.InlinedCallExp
 
 	r.funcargs(fn)
 
-	assert(r.Bool()) // have body
+	assert(r.bool()) // have body
 	r.delayResults = fn.Inl.CanDelayResults
 
 	r.retlabel = typecheck.AutoLabel(".i")
@@ -2061,13 +2011,6 @@ func InlineCall(call *ir.CallExpr, fn *ir.Func, inlIndex int) *ir.InlinedCallExp
 		r.curfn.Body = r.stmts()
 		r.curfn.Endlineno = r.pos()
 
-		// TODO(mdempsky): This shouldn't be necessary. Inlining might
-		// read in new function/method declarations, which could
-		// potentially be recursively inlined themselves; but we shouldn't
-		// need to read in the non-inlined bodies for the declarations
-		// themselves. But currently it's an easy fix to #50552.
-		readBodies(typecheck.Target)
-
 		deadcode.Func(r.curfn)
 
 		// Replace any "return" statements within the function body.
@@ -2083,6 +2026,17 @@ func InlineCall(call *ir.CallExpr, fn *ir.Func, inlIndex int) *ir.InlinedCallExp
 	})
 
 	body := ir.Nodes(r.curfn.Body)
+
+	// Quirk: If deadcode elimination turned a non-empty function into
+	// an empty one, we need to set the position for the empty block
+	// left behind to the inlined position for src.NoXPos, so that
+	// an empty string gets added into the DWARF file name listing at
+	// the appropriate index.
+	if quirksMode() && len(body) == 1 {
+		if block, ok := body[0].(*ir.BlockStmt); ok && len(block.List) == 0 {
+			block.SetPos(r.updatePos(src.NoXPos))
+		}
+	}
 
 	// Quirkish: We need to eagerly prune variables added during
 	// inlining, but removed by deadcode.FuncBody above. Unused
@@ -2166,7 +2120,7 @@ func expandInline(fn *ir.Func, pri pkgReaderIndex) {
 	tmpfn.ClosureVars = fn.ClosureVars
 
 	{
-		r := pri.asReader(pkgbits.RelocBody, pkgbits.SyncFuncBody)
+		r := pri.asReader(relocBody, syncFuncBody)
 		setType(tmpfn.Nname, fn.Type())
 
 		// Don't change parameter's Sym/Nname fields.
@@ -2264,8 +2218,8 @@ func (r *reader) importedDef() bool {
 }
 
 func MakeWrappers(target *ir.Package) {
-	// Only unified IR emits its own wrappers.
-	if base.Debug.Unified == 0 {
+	// Only unified IR in non-quirks mode emits its own wrappers.
+	if base.Debug.Unified == 0 || quirksMode() {
 		return
 	}
 

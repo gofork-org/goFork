@@ -65,7 +65,7 @@ func (check *Checker) instantiateSignature(pos token.Pos, typ *Signature, targs 
 	assert(len(targs) == typ.TypeParams().Len())
 
 	if trace {
-		check.trace(pos, "-- instantiating signature %s with %s", typ, targs)
+		check.trace(pos, "-- instantiating %s with %s", typ, targs)
 		check.indent++
 		defer func() {
 			check.indent--
@@ -89,7 +89,7 @@ func (check *Checker) instantiateSignature(pos token.Pos, typ *Signature, targs 
 		} else {
 			check.mono.recordInstance(check.pkg, pos, tparams, targs, xlist)
 		}
-	}).describef(atPos(pos), "verify instantiation")
+	})
 
 	return inst
 }
@@ -368,10 +368,11 @@ func (check *Checker) arguments(call *ast.CallExpr, sig *Signature, targs []Type
 		if sig.params != nil {
 			params = sig.params.vars
 		}
-		err := newErrorf(at, _WrongArgCount, "%s arguments in call to %s", qualifier, call.Fun)
-		err.errorf(token.NoPos, "have %s", check.typesSummary(operandTypes(args), false))
-		err.errorf(token.NoPos, "want %s", check.typesSummary(varTypes(params), sig.variadic))
-		check.report(err)
+		check.errorf(at, _WrongArgCount, "%s arguments in call to %s\n\thave %s\n\twant %s",
+			qualifier, call.Fun,
+			check.typesSummary(operandTypes(args), false),
+			check.typesSummary(varTypes(params), sig.variadic),
+		)
 		return
 	}
 
