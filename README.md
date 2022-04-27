@@ -14,6 +14,7 @@ Allman/Horstmann style is for we human, K&R style is for google robots!
 #export -n GOROOT ; hash -r go
 #sudo export PATH=$PATH:/usr/local/go/bin
 git clone --depth 1 --recursive https://github.com/gofork-org/go.git
+#or: wget https://github.com/gofork-org/go/archive/refs/heads/master.zip && unzip master.zip
 cd ./go/src
 #export GOROOT_BOOTSTRAP=/usr/local/go.bak/
 ./all.bash             #need 50 seconds to build gofork compiler           
