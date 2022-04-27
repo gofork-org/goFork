@@ -1,4 +1,4 @@
-# forkGo:
+# goFork:
 
 Fork golang to support Allman/Horstmann style of curly braces 
 
@@ -8,21 +8,21 @@ Allman/Horstmann style is for we human, K&R style is for google robots!
 
 ![Gopher image](https://avatars.githubusercontent.com/u/86223803)
 
-# Compile forkgo:
+# Compile goFork:
 ```bash
 #sudo rm -rf /usr/local/go && wget -qO- https://golang.org/dl/go1.17.linux-amd64.tar.gz | sudo tar -xvz -C /usr/local
 #sudo export PATH=$PATH:/usr/local/go/bin
-git clone --depth 1 --recursive https://github.com/forkgo-org/go.git
+git clone --depth 1 --recursive https://github.com/gofork-org/go.git
 cd ./go/src
-./all.bash             #need 50 seconds to build forkgo compiler           
+./all.bash             #need 50 seconds to build gofork compiler           
 
-cd ../forkgo-test
+cd ../test-gofork
 ../bin/go version      #go version devel go1.17-ed7efd3 ....
 ../bin/go mod init test
 ../bin/go build -ldflags="-s -w"
 ./test
 
-#if everything is ok, we can replace go with forkgo:
+#if everything is ok, we can replace go with gofork:
 sudo cp ../bin/go /usr/local/bin/go
 sudo mv /usr/local/go/bin/go /usr/local/go/bin/go.golang
 hash -d go
@@ -31,7 +31,7 @@ type go        #if it shows "/usr/local/bin/go", we success
 #if you have "git pull" again, you should run ./all.bash again to match the ./bin/go with the latest ./src(stdlib)
 ```
 
-# forkgo-test/test.go, Allman/Horstmann style:
+# test-gofork/test.go, Allman/Horstmann style:
 
 ```go
 package main
@@ -43,16 +43,16 @@ import
 func main()
 {   if false
     {   fmt.Println("jack")
-        fmt.Println("forkgo")
+        fmt.Println("gofork")
     } else
     {   fmt/
            .Println("hello")
-        fmt.Println("forkgo")
+        fmt.Println("gofork")
     }
 
     var a="hello"
 
-    {   var b="forkgo"
+    {   var b="gofork"
         fmt.Println(a, b)
     }
 }
@@ -65,7 +65,7 @@ Notes:
 
 2. A seperate code block needs a precedent empty line
 
-While forkGo keeps support for golang's K&R style:
+While gofork keeps support for golang's K&R style:
 
 ```go
 package main
@@ -77,16 +77,16 @@ import(
 func main() {
     if false {
         fmt.Println("jack")
-        fmt.Println("forkgo")
+        fmt.Println("gofork")
     } else {
         fmt.
            Println("hello")
-        fmt.Println("forkgo")
+        fmt.Println("gofork")
     }
 
     var a="hello"
     {
-        var b="forkgo"
+        var b="gofork"
         fmt.Println(a, b)
     }
 }
