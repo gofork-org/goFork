@@ -669,8 +669,7 @@ func (c *gcControllerState) endCycle(now int64, procs int, userForced bool) floa
 		//
 		// Note that because we only care about the ratio, assistDuration and procs cancel out.
 		scanWork := c.heapScanWork.Load() + c.stackScanWork.Load() + c.globalsScanWork.Load()
-		currentConsMark := (float64(c.heapLive-c.trigger) * (utilization + idleUtilization)) /
-			(float64(scanWork) * (1 - utilization))
+		currentConsMark := (float64(c.heapLive-c.trigger) * (utilization + idleUtilization)) / (float64(scanWork) * (1 - utilization))
 
 		// Update cons/mark controller. The time period for this is 1 GC cycle.
 		//
