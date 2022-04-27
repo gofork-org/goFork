@@ -118,6 +118,20 @@ redo:
 
 	case '\n':
 		s.nextch()
+		for s.ch == ' ' || s.ch == '\t' || s.ch == '\r' {
+			s.nextch()
+		}
+		if s.ch == '{' {
+			s.nextch()
+			if s.ch == ' ' || s.ch == '\t' {
+				s.nextch()
+				s.tok = _Lbrace
+				break
+			}
+		}
+		s.rewind()
+
+		s.nextch()
 		s.lit = "newline"
 		s.tok = _Semi
 
@@ -229,6 +243,12 @@ redo:
 
 	case '/':
 		s.nextch()
+
+        if s.ch == '\n' {
+            s.nextch()
+            goto redo
+        }
+
 		if s.ch == '/' {
 			s.nextch()
 			s.lineComment()
