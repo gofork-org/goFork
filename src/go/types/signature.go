@@ -5,7 +5,6 @@
 package types
 
 import (
-	"fmt"
 	"go/ast"
 	"go/token"
 )
@@ -42,18 +41,16 @@ func NewSignature(recv *Var, params, results *Tuple, variadic bool) *Signature {
 // NewSignatureType creates a new function type for the given receiver,
 // receiver type parameters, type parameters, parameters, and results. If
 // variadic is set, params must hold at least one parameter and the last
-// parameter's core type must be of unnamed slice or bytestring type.
-// If recv is non-nil, typeParams must be empty. If recvTypeParams is
-// non-empty, recv must be non-nil.
+// parameter must be of unnamed slice type. If recv is non-nil, typeParams must
+// be empty. If recvTypeParams is non-empty, recv must be non-nil.
 func NewSignatureType(recv *Var, recvTypeParams, typeParams []*TypeParam, params, results *Tuple, variadic bool) *Signature {
 	if variadic {
 		n := params.Len()
 		if n == 0 {
 			panic("variadic function must have at least one parameter")
 		}
-		core := coreString(params.At(n - 1).typ)
-		if _, ok := core.(*Slice); !ok && !isString(core) {
-			panic(fmt.Sprintf("got %s, want variadic parameter with unnamed slice type or string as core type", core.String()))
+		if _, ok := params.At(n - 1).typ.(*Slice); !ok {
+			panic("variadic parameter must be of unnamed slice type")
 		}
 	}
 	sig := &Signature{recv: recv, params: params, results: results, variadic: variadic}
