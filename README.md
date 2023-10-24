@@ -14,9 +14,9 @@ sudo rm -rf /usr/local/go && wget -qO- https://golang.org/dl/go1.18.1.linux-amd6
 export -n GOROOT ; hash -d go
 sudo mv /usr/local/go /usr/local/go.golang
 git clone --depth 1 --recursive https://github.com/gofork-org/goFork.git
-#or: wget https://github.com/gofork-org/go/archive/refs/heads/master.zip && unzip master.zip
-cp -r ./go/bin.bootstrap ./go/bin
-cd ./go/src
+#wget https://github.com/gofork-org/go/archive/refs/heads/master.zip && unzip master.zip
+#cp -r ./go/bin.bootstrap ./go/bin
+cd ./goFork/src
 #bootstrap depends on ./pkg/tool/linux_amd64/compile(23MB bin), ./bin/go(15MB bin), can't simply copy them into goFork, will be not compatible with ./src/
 export GOROOT_BOOTSTRAP=/usr/local/go.golang
 ./all.bash             #need 50 seconds to build gofork compiler           
