@@ -4,12 +4,6 @@
 
 package syscall
 
-var (
-	RawSyscallNoError = rawSyscallNoError
-	ForceClone3       = &forceClone3
-)
+var RawSyscallNoError = rawSyscallNoError
 
-const (
-	Sys_GETEUID           = sys_GETEUID
-	Sys_pidfd_send_signal = _SYS_pidfd_send_signal
-)
+const Sys_GETEUID = sys_GETEUID

@@ -20,7 +20,6 @@ package main
 
 import (
 	"bytes"
-	"cmd/go/internal/str"
 	"flag"
 	"fmt"
 	"internal/txtar"

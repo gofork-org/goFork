@@ -115,3 +115,10 @@ func (f *stringFinder) next(text string) int {
 	}
 	return -1
 }
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}

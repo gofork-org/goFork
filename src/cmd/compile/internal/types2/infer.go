@@ -27,11 +27,7 @@ const enableReverseTypeInference = true // disable for debugging
 // If successful, infer returns the complete list of given and inferred type arguments, one for each
 // type parameter. Otherwise the result is nil and appropriate errors will be reported.
 func (check *Checker) infer(pos syntax.Pos, tparams []*TypeParam, targs []Type, params *Tuple, args []*operand) (inferred []Type) {
-	// Don't verify result conditions if there's no error handler installed:
-	// in that case, an error leads to an exit panic and the result value may
-	// be incorrect. But in that case it doesn't matter because callers won't
-	// be able to use it either.
-	if check.conf.Error != nil {
+	if debug {
 		defer func() {
 			assert(inferred == nil || len(inferred) == len(tparams) && !containsNil(inferred))
 		}()

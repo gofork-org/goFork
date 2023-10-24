@@ -90,7 +90,7 @@ type actionDesc struct {
 }
 
 // A Checker maintains the state of the type checker.
-// It must be created with [NewChecker].
+// It must be created with NewChecker.
 type Checker struct {
 	// package information
 	// (initialized by NewChecker, valid for the life-time of checker)
@@ -100,7 +100,6 @@ type Checker struct {
 	pkg  *Package
 	*Info
 	version version                // accepted language version
-	posVers map[token.Pos]version  // maps file start positions to versions (may be nil)
 	nextID  uint64                 // unique Id for type parameters (first valid Id is 1)
 	objMap  map[Object]*declInfo   // maps package-level objects and (non-interface) methods to declaration info
 	impMap  map[importKey]*Package // maps (import path, source directory) to (complete or fake) package
@@ -120,6 +119,7 @@ type Checker struct {
 	// (initialized by Files, valid only for the duration of check.Files;
 	// maps and lists are allocated on demand)
 	files         []*ast.File               // package files
+	posVers       map[*token.File]version   // Pos -> Go version mapping
 	imports       []*PkgName                // list of imported packages
 	dotImportMap  map[dotImportKey]*PkgName // maps dot-imported objects to the package they were dot-imported through
 	recvTParamMap map[*ast.Ident]*TypeParam // maps blank receiver type parameters to their type
@@ -172,7 +172,7 @@ func (check *Checker) validAlias(alias *TypeName, typ Type) {
 
 // isBrokenAlias reports whether alias doesn't have a determined type yet.
 func (check *Checker) isBrokenAlias(alias *TypeName) bool {
-	return !isValid(alias.typ) && check.brokenAliases[alias]
+	return alias.typ == Typ[Invalid] && check.brokenAliases[alias]
 }
 
 func (check *Checker) rememberUntyped(e ast.Expr, lhs bool, mode operandMode, typ *Basic, val constant.Value) {
@@ -221,8 +221,8 @@ func (check *Checker) needsCleanup(c cleaner) {
 	check.cleaners = append(check.cleaners, c)
 }
 
-// NewChecker returns a new [Checker] instance for a given package.
-// [Package] files may be added incrementally via checker.Files.
+// NewChecker returns a new Checker instance for a given package.
+// Package files may be added incrementally via checker.Files.
 func NewChecker(conf *Config, fset *token.FileSet, pkg *Package, info *Info) *Checker {
 	// make sure we have a configuration
 	if conf == nil {
@@ -287,10 +287,9 @@ func (check *Checker) initFiles(files []*ast.File) {
 		}
 	}
 
-	// collect file versions
 	for _, file := range check.files {
-		check.recordFileVersion(file, check.conf.GoVersion)
-		if v, _ := parseGoVersion(file.GoVersion); v.major > 0 {
+		v, _ := parseGoVersion(file.GoVersion)
+		if v.major > 0 {
 			if v.equal(check.version) {
 				continue
 			}
@@ -307,16 +306,21 @@ func (check *Checker) initFiles(files []*ast.File) {
 			// If there is no check.version, then we don't really know what Go version to apply.
 			// Legacy tools may do this, and they historically have accepted everything.
 			// Preserve that behavior by ignoring //go:build constraints entirely in that case.
-			if (v.before(check.version) && check.version.before(go1_21)) || check.version.equal(go0_0) {
+			if (v.before(check.version) && check.version.before(version{1, 21})) || check.version.equal(version{0, 0}) {
 				continue
 			}
 			if check.posVers == nil {
-				check.posVers = make(map[token.Pos]version)
+				check.posVers = make(map[*token.File]version)
 			}
-			check.posVers[file.FileStart] = v
-			check.recordFileVersion(file, file.GoVersion) // overwrite package version
+			check.posVers[check.fset.File(file.FileStart)] = v
 		}
 	}
+}
+
+// A posVers records that the file starting at pos declares the Go version vers.
+type posVers struct {
+	pos  token.Pos
+	vers version
 }
 
 // A bailout panic is used for early termination.
@@ -346,10 +350,6 @@ func (check *Checker) checkFiles(files []*ast.File) (err error) {
 		return nil
 	}
 
-	// Note: parseGoVersion and the subsequent checks should happen once,
-	//       when we create a new Checker, not for each batch of files.
-	//       We can't change it at this point because NewChecker doesn't
-	//       return an error.
 	check.version, err = parseGoVersion(check.conf.GoVersion)
 	if err != nil {
 		return err
@@ -505,7 +505,7 @@ func (check *Checker) recordTypeAndValue(x ast.Expr, mode operandMode, typ Type,
 		assert(val != nil)
 		// We check allBasic(typ, IsConstType) here as constant expressions may be
 		// recorded as type parameters.
-		assert(!isValid(typ) || allBasic(typ, IsConstType))
+		assert(typ == Typ[Invalid] || allBasic(typ, IsConstType))
 	}
 	if m := check.Types; m != nil {
 		m[x] = TypeAndValue{mode, typ, val}
@@ -630,11 +630,5 @@ func (check *Checker) recordScope(node ast.Node, scope *Scope) {
 	assert(scope != nil)
 	if m := check.Scopes; m != nil {
 		m[node] = scope
-	}
-}
-
-func (check *Checker) recordFileVersion(file *ast.File, version string) {
-	if m := check._FileVersions; m != nil {
-		m[file] = version
 	}
 }

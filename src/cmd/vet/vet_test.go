@@ -62,7 +62,6 @@ func vetCmd(t *testing.T, arg, pkg string) *exec.Cmd {
 func TestVet(t *testing.T) {
 	t.Parallel()
 	for _, pkg := range []string{
-		"appends",
 		"asm",
 		"assign",
 		"atomic",

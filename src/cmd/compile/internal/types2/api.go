@@ -288,11 +288,6 @@ type Info struct {
 	// in source order. Variables without an initialization expression do not
 	// appear in this list.
 	InitOrder []*Initializer
-
-	// FileVersions maps a file's position base to the file's Go version.
-	// If the file doesn't specify a version and Config.GoVersion is not
-	// given, the reported version is the zero version (Major, Minor = 0, 0).
-	FileVersions map[*syntax.PosBase]Version
 }
 
 func (info *Info) recordTypes() bool {
@@ -426,12 +421,6 @@ func (init *Initializer) String() string {
 	return buf.String()
 }
 
-// A Version represents a released Go version.
-type Version struct {
-	Major int
-	Minor int
-}
-
 // Check type-checks a package and returns the resulting package object and
 // the first error if any. Additionally, if info != nil, Check populates each
 // of the non-nil maps in the Info struct.
@@ -458,7 +447,7 @@ func (conf *Config) Check(path string, files []*syntax.File, info *Info) (*Packa
 func AssertableTo(V *Interface, T Type) bool {
 	// Checker.newAssertableTo suppresses errors for invalid types, so we need special
 	// handling here.
-	if !isValid(T.Underlying()) {
+	if T.Underlying() == Typ[Invalid] {
 		return false
 	}
 	return (*Checker)(nil).newAssertableTo(nopos, V, T, nil)
@@ -496,7 +485,7 @@ func Implements(V Type, T *Interface) bool {
 	}
 	// Checker.implements suppresses errors for invalid types, so we need special
 	// handling here.
-	if !isValid(V.Underlying()) {
+	if V.Underlying() == Typ[Invalid] {
 		return false
 	}
 	return (*Checker)(nil).implements(nopos, V, T, false, nil)

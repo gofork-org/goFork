@@ -32,8 +32,6 @@ var All = []Info{
 	{Name: "http2client", Package: "net/http"},
 	{Name: "http2debug", Package: "net/http", Opaque: true},
 	{Name: "http2server", Package: "net/http"},
-	{Name: "httplaxcontentlength", Package: "net/http", Changed: 22, Old: "1"},
-	{Name: "httpmuxgo121", Package: "net/http", Changed: 22, Old: "1"},
 	{Name: "installgoroot", Package: "go/build"},
 	{Name: "jstmpllitinterp", Package: "html/template"},
 	//{Name: "multipartfiles", Package: "mime/multipart"},
@@ -56,7 +54,7 @@ func Lookup(name string) *Info {
 	lo := 0
 	hi := len(All)
 	for lo < hi {
-		m := int(uint(lo+hi) >> 1)
+		m := lo + (hi-lo)>>1
 		mid := All[m].Name
 		if name == mid {
 			return &All[m]

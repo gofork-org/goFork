@@ -228,18 +228,21 @@ func Delete[S ~[]E, E any](s S, i, j int) S {
 // zeroing those elements so that objects they reference can be garbage
 // collected.
 func DeleteFunc[S ~[]E, E any](s S, del func(E) bool) S {
-	i := IndexFunc(s, del)
-	if i == -1 {
-		return s
-	}
 	// Don't start copying elements until we find one to delete.
-	for j := i + 1; j < len(s); j++ {
-		if v := s[j]; !del(v) {
-			s[i] = v
-			i++
+	for i, v := range s {
+		if del(v) {
+			j := i
+			for i++; i < len(s); i++ {
+				v = s[i]
+				if !del(v) {
+					s[j] = v
+					j++
+				}
+			}
+			return s[:j]
 		}
 	}
-	return s[:i]
+	return s
 }
 
 // Replace replaces the elements s[i:j] by the given v, and returns the
@@ -268,7 +271,9 @@ func Replace[S ~[]E, E any](s S, i, j int, v ...E) S {
 	if i+len(v) <= j {
 		// Easy, as v fits in the deleted portion.
 		copy(r[i:], v)
-		copy(r[i+len(v):], s[j:])
+		if i+len(v) != j {
+			copy(r[i+len(v):], s[j:])
+		}
 		return r
 	}
 
@@ -331,8 +336,11 @@ func Replace[S ~[]E, E any](s S, i, j int, v ...E) S {
 // Clone returns a copy of the slice.
 // The elements are copied using assignment, so this is a shallow clone.
 func Clone[S ~[]E, E any](s S) S {
-	// The s[:0:0] preserves nil in case it matters.
-	return append(s[:0:0], s...)
+	// Preserve nil in case it matters.
+	if s == nil {
+		return nil
+	}
+	return append(S([]E{}), s...)
 }
 
 // Compact replaces consecutive runs of equal elements with a single copy.
@@ -487,20 +495,4 @@ func Reverse[S ~[]E, E any](s S) {
 	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
 		s[i], s[j] = s[j], s[i]
 	}
-}
-
-// Concat returns a new slice concatenating the passed in slices.
-func Concat[S ~[]E, E any](slices ...S) S {
-	size := 0
-	for _, s := range slices {
-		size += len(s)
-		if size < 0 {
-			panic("len out of range")
-		}
-	}
-	newslice := Grow[S](nil, size)
-	for _, s := range slices {
-		newslice = append(newslice, s...)
-	}
-	return newslice
 }

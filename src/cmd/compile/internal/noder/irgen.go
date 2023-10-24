@@ -6,13 +6,11 @@ package noder
 
 import (
 	"fmt"
-	"internal/buildcfg"
 	"internal/types/errors"
 	"regexp"
 	"sort"
 
 	"cmd/compile/internal/base"
-	"cmd/compile/internal/rangefunc"
 	"cmd/compile/internal/syntax"
 	"cmd/compile/internal/types2"
 	"cmd/internal/src"
@@ -29,12 +27,8 @@ func checkFiles(m posMap, noders []*noder) (*types2.Package, *types2.Info) {
 
 	// setup and syntax error reporting
 	files := make([]*syntax.File, len(noders))
-	// posBaseMap maps all file pos bases back to *syntax.File
-	// for checking Go version mismatched.
-	posBaseMap := make(map[*syntax.PosBase]*syntax.File)
 	for i, p := range noders {
 		files[i] = p.file
-		posBaseMap[p.file.Pos().Base()] = p.file
 	}
 
 	// typechecking
@@ -47,8 +41,17 @@ func checkFiles(m posMap, noders []*noder) (*types2.Package, *types2.Info) {
 		Context:            ctxt,
 		GoVersion:          base.Flag.Lang,
 		IgnoreBranchErrors: true, // parser already checked via syntax.CheckBranches mode
-		Importer:           &importer,
-		Sizes:              types2.SizesFor("gc", buildcfg.GOARCH),
+		Error: func(err error) {
+			terr := err.(types2.Error)
+			msg := terr.Msg
+			// if we have a version error, hint at the -lang setting
+			if versionErrorRx.MatchString(msg) {
+				msg = fmt.Sprintf("%s (-lang was set to %s; check go.mod)", msg, base.Flag.Lang)
+			}
+			base.ErrorfAt(m.makeXPos(terr.Pos), terr.Code, "%s", msg)
+		},
+		Importer: &importer,
+		Sizes:    &gcSizes{},
 	}
 	if base.Flag.ErrorURL {
 		conf.ErrorURL = " [go.dev/e/%s]"
@@ -61,36 +64,10 @@ func checkFiles(m posMap, noders []*noder) (*types2.Package, *types2.Info) {
 		Implicits:          make(map[syntax.Node]types2.Object),
 		Scopes:             make(map[syntax.Node]*types2.Scope),
 		Instances:          make(map[*syntax.Name]types2.Instance),
-		FileVersions:       make(map[*syntax.PosBase]types2.Version),
 		// expand as needed
-	}
-	conf.Error = func(err error) {
-		terr := err.(types2.Error)
-		msg := terr.Msg
-		if versionErrorRx.MatchString(msg) {
-			posBase := terr.Pos.Base()
-			for !posBase.IsFileBase() { // line directive base
-				posBase = posBase.Pos().Base()
-			}
-			v := info.FileVersions[posBase]
-			fileVersion := fmt.Sprintf("go%d.%d", v.Major, v.Minor)
-			file := posBaseMap[posBase]
-			if file.GoVersion == fileVersion {
-				// If we have a version error caused by //go:build, report it.
-				msg = fmt.Sprintf("%s (file declares //go:build %s)", msg, fileVersion)
-			} else {
-				// Otherwise, hint at the -lang setting.
-				msg = fmt.Sprintf("%s (-lang was set to %s; check go.mod)", msg, base.Flag.Lang)
-			}
-		}
-		base.ErrorfAt(m.makeXPos(terr.Pos), terr.Code, "%s", msg)
 	}
 
 	pkg, err := conf.Check(base.Ctxt.Pkgpath, files, info)
-	base.ExitIfErrors()
-	if err != nil {
-		base.FatalfAt(src.NoXPos, "conf.Check error: %v", err)
-	}
 
 	// Check for anonymous interface cycles (#56103).
 	if base.Debug.InterfaceCycles == 0 {
@@ -111,7 +88,6 @@ func checkFiles(m posMap, noders []*noder) (*types2.Package, *types2.Info) {
 			})
 		}
 	}
-	base.ExitIfErrors()
 
 	// Implementation restriction: we don't allow not-in-heap types to
 	// be used as type arguments (#54765).
@@ -137,16 +113,11 @@ func checkFiles(m posMap, noders []*noder) (*types2.Package, *types2.Info) {
 			base.ErrorfAt(targ.pos, 0, "cannot use incomplete (or unallocatable) type as a type argument: %v", targ.typ)
 		}
 	}
-	base.ExitIfErrors()
 
-	// Rewrite range over function to explicit function calls
-	// with the loop bodies converted into new implicit closures.
-	// We do this now, before serialization to unified IR, so that if the
-	// implicit closures are inlined, we will have the unified IR form.
-	// If we do the rewrite in the back end, like between typecheck and walk,
-	// then the new implicit closure will not have a unified IR inline body,
-	// and bodyReaderFor will fail.
-	rangefunc.Rewrite(pkg, info, files)
+	base.ExitIfErrors()
+	if err != nil {
+		base.FatalfAt(src.NoXPos, "conf.Check error: %v", err)
+	}
 
 	return pkg, info
 }

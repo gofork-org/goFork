@@ -14,6 +14,6 @@ func IsPathSeparator(c uint8) bool {
 	return PathSeparator == c
 }
 
-func volumeName(p string) string {
-	return ""
+func fixRootDirectory(p string) string {
+	return p
 }

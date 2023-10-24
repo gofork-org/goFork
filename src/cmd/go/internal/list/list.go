@@ -780,7 +780,9 @@ func runList(ctx context.Context, cmd *base.Command, args []string) {
 					p.Imports[i] = new
 				}
 			}
-			clear(m)
+			for old := range m {
+				delete(m, old)
+			}
 		}
 	}
 

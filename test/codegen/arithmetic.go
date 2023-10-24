@@ -11,21 +11,6 @@ package codegen
 // For codegen tests on float types, see floats.go.
 
 // ----------------- //
-//    Addition       //
-// ----------------- //
-
-func AddLargeConst(a uint64, out []uint64) {
-	// ppc64x/power10:"ADD\t[$]4294967296,"
-	// ppc64x/power9:"MOVD\t[$]1", "SLD\t[$]32" "ADD\tR[0-9]*"
-	// ppc64x/power8:"MOVD\t[$]1", "SLD\t[$]32" "ADD\tR[0-9]*"
-	out[0] = a + 0x100000000
-	// ppc64x/power10:"ADD\t[$]-8589934592,"
-	// ppc64x/power9:"MOVD\t[$]-1", "SLD\t[$]33" "ADD\tR[0-9]*"
-	// ppc64x/power8:"MOVD\t[$]-1", "SLD\t[$]33" "ADD\tR[0-9]*"
-	out[1] = a + 0xFFFFFFFE00000000
-}
-
-// ----------------- //
 //    Subtraction    //
 // ----------------- //
 
@@ -275,7 +260,7 @@ func Pow2Mods(n1 uint, n2 int) (uint, int) {
 	// amd64:"ANDL\t[$]31",-"DIVQ"
 	// arm:"AND\t[$]31",-".*udiv"
 	// arm64:"AND\t[$]31",-"UDIV"
-	// ppc64x:"RLDICL"
+	// ppc64x:"ANDCC\t[$]31"
 	a := n1 % 32 // unsigned
 
 	// 386:"SHRL",-"IDIVL"
@@ -294,14 +279,14 @@ func Pow2DivisibleSigned(n1, n2 int) (bool, bool) {
 	// amd64:"TESTQ\t[$]63",-"DIVQ",-"SHRQ"
 	// arm:"AND\t[$]63",-".*udiv",-"SRA"
 	// arm64:"TST\t[$]63",-"UDIV",-"ASR",-"AND"
-	// ppc64x:"RLDICL",-"SRAD"
+	// ppc64x:"ANDCC\t[$]63",-"SRAD"
 	a := n1%64 == 0 // signed divisible
 
 	// 386:"TESTL\t[$]63",-"DIVL",-"SHRL"
 	// amd64:"TESTQ\t[$]63",-"DIVQ",-"SHRQ"
 	// arm:"AND\t[$]63",-".*udiv",-"SRA"
 	// arm64:"TST\t[$]63",-"UDIV",-"ASR",-"AND"
-	// ppc64x:"RLDICL",-"SRAD"
+	// ppc64x:"ANDCC\t[$]63",-"SRAD"
 	b := n2%64 != 0 // signed indivisible
 
 	return a, b
@@ -479,7 +464,7 @@ func LenMod1(a []int) int {
 	// arm64:"AND\t[$]1023",-"SDIV"
 	// arm/6:"AND",-".*udiv"
 	// arm/7:"BFC",-".*udiv",-"AND"
-	// ppc64x:"RLDICL"
+	// ppc64x:"ANDCC\t[$]1023"
 	return len(a) % 1024
 }
 
@@ -489,7 +474,7 @@ func LenMod2(s string) int {
 	// arm64:"AND\t[$]2047",-"SDIV"
 	// arm/6:"AND",-".*udiv"
 	// arm/7:"BFC",-".*udiv",-"AND"
-	// ppc64x:"RLDICL"
+	// ppc64x:"ANDCC\t[$]2047"
 	return len(s) % (4097 >> 1)
 }
 
@@ -508,7 +493,7 @@ func CapMod(a []int) int {
 	// arm64:"AND\t[$]4095",-"SDIV"
 	// arm/6:"AND",-".*udiv"
 	// arm/7:"BFC",-".*udiv",-"AND"
-	// ppc64x:"RLDICL"
+	// ppc64x:"ANDCC\t[$]4095"
 	return cap(a) % ((1 << 11) + 2048)
 }
 

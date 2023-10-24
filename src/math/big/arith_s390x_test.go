@@ -3,6 +3,7 @@
 // license that can be found in the LICENSE file.
 
 //go:build s390x && !math_big_pure_go
+// +build s390x,!math_big_pure_go
 
 package big
 
@@ -14,7 +15,7 @@ import (
 // vector-capable machine
 
 func TestFunVVnovec(t *testing.T) {
-	if hasVX {
+	if hasVX == true {
 		for _, a := range sumVV {
 			arg := a
 			testFunVV(t, "addVV_novec", addVV_novec, arg)

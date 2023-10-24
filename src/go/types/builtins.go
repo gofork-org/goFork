@@ -205,7 +205,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 
 		if mode == invalid {
 			// avoid error if underlying type is invalid
-			if isValid(under(x.typ)) {
+			if under(x.typ) != Typ[Invalid] {
 				code := InvalidCap
 				if id == _Len {
 					code = InvalidLen
@@ -489,7 +489,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 		// (no argument evaluated yet)
 		arg0 := argList[0]
 		T := check.varType(arg0)
-		if !isValid(T) {
+		if T == Typ[Invalid] {
 			return
 		}
 
@@ -599,7 +599,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 		// new(T)
 		// (no argument evaluated yet)
 		T := check.varType(argList[0])
-		if !isValid(T) {
+		if T == Typ[Invalid] {
 			return
 		}
 
@@ -922,7 +922,7 @@ func hasVarSize(t Type, seen map[*Named]bool) (varSized bool) {
 	// Cycles are only possible through *Named types.
 	// The seen map is used to detect cycles and track
 	// the results of previously seen types.
-	if named := asNamed(t); named != nil {
+	if named, _ := t.(*Named); named != nil {
 		if v, ok := seen[named]; ok {
 			return v
 		}
@@ -1034,4 +1034,13 @@ func arrayPtrDeref(typ Type) Type {
 	return typ
 }
 
-func unparen(e ast.Expr) ast.Expr { return ast.Unparen(e) }
+// unparen returns e with any enclosing parentheses stripped.
+func unparen(e ast.Expr) ast.Expr {
+	for {
+		p, ok := e.(*ast.ParenExpr)
+		if !ok {
+			return e
+		}
+		e = p.X
+	}
+}

@@ -110,9 +110,42 @@ func dumpCompilerObj(bout *bio.Writer) {
 }
 
 func dumpdata() {
-	reflectdata.WriteGCSymbols()
-	reflectdata.WritePluginTable()
+	numExterns := len(typecheck.Target.Externs)
+	numDecls := len(typecheck.Target.Decls)
+	dumpglobls(typecheck.Target.Externs)
+	reflectdata.CollectPTabs()
+	numExports := len(typecheck.Target.Exports)
+	addsignats(typecheck.Target.Externs)
+	reflectdata.WriteRuntimeTypes()
+	reflectdata.WriteTabs()
+	numPTabs := reflectdata.CountPTabs()
+	reflectdata.WriteImportStrings()
+	reflectdata.WriteBasicTypes()
 	dumpembeds()
+
+	// Calls to WriteRuntimeTypes can generate functions,
+	// like method wrappers and hash and equality routines.
+	// Compile any generated functions, process any new resulting types, repeat.
+	// This can't loop forever, because there is no way to generate an infinite
+	// number of types in a finite amount of code.
+	// In the typical case, we loop 0 or 1 times.
+	// It was not until issue 24761 that we found any code that required a loop at all.
+	for {
+		for i := numDecls; i < len(typecheck.Target.Decls); i++ {
+			if n, ok := typecheck.Target.Decls[i].(*ir.Func); ok {
+				enqueueFunc(n)
+			}
+		}
+		numDecls = len(typecheck.Target.Decls)
+		compileFunctions()
+		reflectdata.WriteRuntimeTypes()
+		if numDecls == len(typecheck.Target.Decls) {
+			break
+		}
+	}
+
+	// Dump extra globals.
+	dumpglobls(typecheck.Target.Externs[numExterns:])
 
 	if reflectdata.ZeroSize > 0 {
 		zero := base.PkgLinksym("go:map", "zero", obj.ABI0)
@@ -122,6 +155,14 @@ func dumpdata() {
 
 	staticdata.WriteFuncSyms()
 	addGCLocals()
+
+	if numExports != len(typecheck.Target.Exports) {
+		base.Fatalf("Target.Exports changed after compile functions loop")
+	}
+	newNumPTabs := reflectdata.CountPTabs()
+	if newNumPTabs != numPTabs {
+		base.Fatalf("ptabs changed after compile functions loop")
+	}
 }
 
 func dumpLinkerObj(bout *bio.Writer) {
@@ -157,10 +198,10 @@ func dumpGlobal(n *ir.Name) {
 	if n.CoverageCounter() || n.CoverageAuxVar() || n.Linksym().Static() {
 		return
 	}
-	base.Ctxt.DwarfGlobal(types.TypeSymName(n.Type()), n.Linksym())
+	base.Ctxt.DwarfGlobal(base.Ctxt.Pkgpath, types.TypeSymName(n.Type()), n.Linksym())
 }
 
-func dumpGlobalConst(n *ir.Name) {
+func dumpGlobalConst(n ir.Node) {
 	// only export typed constants
 	t := n.Type()
 	if t == nil {
@@ -185,7 +226,19 @@ func dumpGlobalConst(n *ir.Name) {
 		// that type so the linker knows about it. See issue 51245.
 		_ = reflectdata.TypeLinksym(t)
 	}
-	base.Ctxt.DwarfIntConst(n.Sym().Name, types.TypeSymName(t), ir.IntVal(t, v))
+	base.Ctxt.DwarfIntConst(base.Ctxt.Pkgpath, n.Sym().Name, types.TypeSymName(t), ir.IntVal(t, v))
+}
+
+func dumpglobls(externs []ir.Node) {
+	// add globals
+	for _, n := range externs {
+		switch n.Op() {
+		case ir.ONAME:
+			dumpGlobal(n.(*ir.Name))
+		case ir.OLITERAL:
+			dumpGlobalConst(n)
+		}
+	}
 }
 
 // addGCLocals adds gcargs, gclocals, gcregs, and stack object symbols to Ctxt.Data.
@@ -280,5 +333,14 @@ func ggloblnod(nam *ir.Name) {
 func dumpembeds() {
 	for _, v := range typecheck.Target.Embeds {
 		staticdata.WriteEmbed(v)
+	}
+}
+
+func addsignats(dcls []ir.Node) {
+	// copy types from dcl list to signatset
+	for _, n := range dcls {
+		if n.Op() == ir.OTYPE {
+			reflectdata.NeedRuntimeType(n.Type())
+		}
 	}
 }

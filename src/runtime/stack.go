@@ -555,6 +555,7 @@ var ptrnames = []string{
 type adjustinfo struct {
 	old   stack
 	delta uintptr // ptr distance from old to new stack (newbase - oldbase)
+	cache pcvalueCache
 
 	// sghi is the highest sudog.elem on the stack.
 	sghi uintptr
@@ -675,7 +676,7 @@ func adjustframe(frame *stkframe, adjinfo *adjustinfo) {
 		adjustpointer(adjinfo, unsafe.Pointer(frame.varp))
 	}
 
-	locals, args, objs := frame.getStackMap(true)
+	locals, args, objs := frame.getStackMap(&adjinfo.cache, true)
 
 	// Adjust local variables if stack frame has been allocated.
 	if locals.n > 0 {
@@ -762,7 +763,10 @@ func adjustdefers(gp *g, adjinfo *adjustinfo) {
 	for d := gp._defer; d != nil; d = d.link {
 		adjustpointer(adjinfo, unsafe.Pointer(&d.fn))
 		adjustpointer(adjinfo, unsafe.Pointer(&d.sp))
+		adjustpointer(adjinfo, unsafe.Pointer(&d._panic))
 		adjustpointer(adjinfo, unsafe.Pointer(&d.link))
+		adjustpointer(adjinfo, unsafe.Pointer(&d.varp))
+		adjustpointer(adjinfo, unsafe.Pointer(&d.fd))
 	}
 }
 

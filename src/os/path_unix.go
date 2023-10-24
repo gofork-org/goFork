@@ -70,6 +70,6 @@ func splitPath(path string) (string, string) {
 	return dirname, basename
 }
 
-func volumeName(p string) string {
-	return ""
+func fixRootDirectory(p string) string {
+	return p
 }

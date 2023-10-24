@@ -5,6 +5,7 @@
 package fortran
 
 import (
+	"fmt"
 	"internal/testenv"
 	"os"
 	"os/exec"
@@ -74,18 +75,11 @@ func TestFortran(t *testing.T) {
 
 	// Finally, run the actual test.
 	t.Log("go", "run", "./testdata/testprog")
-	var stdout, stderr strings.Builder
-	cmd := exec.Command("go", "run", "./testdata/testprog")
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	t.Logf("%v", cmd)
-	if stderr.Len() != 0 {
-		t.Logf("stderr:\n%s", stderr.String())
+	out, err := exec.Command("go", "run", "./testdata/testprog").CombinedOutput()
+	if err == nil && string(out) != "ok\n" {
+		err = fmt.Errorf("expected ok")
 	}
 	if err != nil {
-		t.Errorf("%v\n%s", err, stdout.String())
-	} else if stdout.String() != "ok\n" {
-		t.Errorf("stdout:\n%s\nwant \"ok\"", stdout.String())
+		t.Errorf("%s\nOutput:\n%s", err, string(out))
 	}
 }

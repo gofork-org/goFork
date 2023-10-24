@@ -40,7 +40,6 @@ var passFlagToTest = map[string]bool{
 }
 
 var passAnalyzersToVet = map[string]bool{
-	"appends":          true,
 	"asmdecl":          true,
 	"assign":           true,
 	"atomic":           true,
@@ -51,7 +50,6 @@ var passAnalyzersToVet = map[string]bool{
 	"cgocall":          true,
 	"composites":       true,
 	"copylocks":        true,
-	"defers":           true,
 	"directive":        true,
 	"errorsas":         true,
 	"framepointer":     true,

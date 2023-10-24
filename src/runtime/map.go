@@ -70,7 +70,7 @@ const (
 	// Because of minimum alignment rules, bucketCnt is known to be at least 8.
 	// Represent as loadFactorNum/loadFactorDen, to allow integer math.
 	loadFactorDen = 2
-	loadFactorNum = loadFactorDen * bucketCnt * 13 / 16
+	loadFactorNum = (bucketCnt * 13 / 16) * loadFactorDen
 
 	// Maximum key or elem size to keep inline (instead of mallocing per element).
 	// Must fit in a uint8.
@@ -407,8 +407,8 @@ func mapaccess1(t *maptype, h *hmap, key unsafe.Pointer) unsafe.Pointer {
 		asanread(key, t.Key.Size_)
 	}
 	if h == nil || h.count == 0 {
-		if err := mapKeyError(t, key); err != nil {
-			panic(err) // see issue 23734
+		if t.HashMightPanic() {
+			t.Hasher(key, 0) // see issue 23734
 		}
 		return unsafe.Pointer(&zeroVal[0])
 	}
@@ -468,8 +468,8 @@ func mapaccess2(t *maptype, h *hmap, key unsafe.Pointer) (unsafe.Pointer, bool) 
 		asanread(key, t.Key.Size_)
 	}
 	if h == nil || h.count == 0 {
-		if err := mapKeyError(t, key); err != nil {
-			panic(err) // see issue 23734
+		if t.HashMightPanic() {
+			t.Hasher(key, 0) // see issue 23734
 		}
 		return unsafe.Pointer(&zeroVal[0]), false
 	}
@@ -707,8 +707,8 @@ func mapdelete(t *maptype, h *hmap, key unsafe.Pointer) {
 		asanread(key, t.Key.Size_)
 	}
 	if h == nil || h.count == 0 {
-		if err := mapKeyError(t, key); err != nil {
-			panic(err) // see issue 23734
+		if t.HashMightPanic() {
+			t.Hasher(key, 0) // see issue 23734
 		}
 		return
 	}
@@ -1651,7 +1651,7 @@ func copyKeys(t *maptype, h *hmap, b *bmap, s *slice, offset uint8) {
 			if s.len >= s.cap {
 				fatal("concurrent map read and map write")
 			}
-			typedmemmove(t.Key, add(s.array, uintptr(s.len)*uintptr(t.Key.Size())), k)
+			typedmemmove(t.Key, add(s.array, uintptr(s.len)*uintptr(t.KeySize)), k)
 			s.len++
 		}
 		b = b.overflow(t)
@@ -1716,7 +1716,7 @@ func copyValues(t *maptype, h *hmap, b *bmap, s *slice, offset uint8) {
 			if s.len >= s.cap {
 				fatal("concurrent map read and map write")
 			}
-			typedmemmove(t.Elem, add(s.array, uintptr(s.len)*uintptr(t.Elem.Size())), ele)
+			typedmemmove(t.Elem, add(s.array, uintptr(s.len)*uintptr(t.ValueSize)), ele)
 			s.len++
 		}
 		b = b.overflow(t)

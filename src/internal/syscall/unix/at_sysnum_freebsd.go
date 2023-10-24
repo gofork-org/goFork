@@ -7,8 +7,6 @@ package unix
 import "syscall"
 
 const (
-	AT_EACCESS          = 0x100
-	AT_FDCWD            = -0x64
 	AT_REMOVEDIR        = 0x800
 	AT_SYMLINK_NOFOLLOW = 0x200
 

@@ -14,7 +14,7 @@ package devirt
 import (
 	"testing"
 
-	"example.com/pgo/devirtualize/mult.pkg"
+	"example.com/pgo/devirtualize/mult"
 )
 
 func BenchmarkDevirt(b *testing.B) {

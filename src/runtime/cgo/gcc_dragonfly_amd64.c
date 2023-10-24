@@ -16,8 +16,14 @@ static void (*setg_gcc)(void*);
 void
 x_cgo_init(G *g, void (*setg)(void*))
 {
+	pthread_attr_t attr;
+	size_t size;
+
 	setg_gcc = setg;
-	_cgo_set_stacklo(g, NULL);
+	pthread_attr_init(&attr);
+	pthread_attr_getstacksize(&attr, &size);
+	g->stacklo = (uintptr)&attr - size + 4096;
+	pthread_attr_destroy(&attr);
 }
 
 void
@@ -42,11 +48,11 @@ _cgo_sys_thread_start(ThreadStart *ts)
 	pthread_sigmask(SIG_SETMASK, &oset, nil);
 
 	if (err != 0) {
-		fatalf("pthread_create failed: %s", strerror(err));
+		fprintf(stderr, "runtime/cgo: pthread_create failed: %s\n", strerror(err));
+		abort();
 	}
 }
 
-extern void crosscall1(void (*fn)(void), void (*setg_gcc)(void*), void *g);
 static void*
 threadentry(void *v)
 {
@@ -55,6 +61,6 @@ threadentry(void *v)
 	ts = *(ThreadStart*)v;
 	free(v);
 
-	crosscall1(ts.fn, setg_gcc, (void*)ts.g);
+	crosscall_amd64(ts.fn, setg_gcc, (void*)ts.g);
 	return nil;
 }

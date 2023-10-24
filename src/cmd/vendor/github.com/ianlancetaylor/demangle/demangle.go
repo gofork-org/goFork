@@ -27,20 +27,10 @@ type Option int
 
 const (
 	// The NoParams option disables demangling of function parameters.
-	// It only omits the parameters of the function name being demangled,
-	// not the parameter types of other functions that may be mentioned.
-	// Using the option will speed up the demangler and cause it to
-	// use less memory.
 	NoParams Option = iota
 
 	// The NoTemplateParams option disables demangling of template parameters.
-	// This applies to both C++ and Rust.
 	NoTemplateParams
-
-	// The NoEnclosingParams option disables demangling of the function
-	// parameter types of the enclosing function when demangling a
-	// local name defined within a function.
-	NoEnclosingParams
 
 	// The NoClones option disables inclusion of clone suffixes.
 	// NoParams implies NoClones.
@@ -60,34 +50,6 @@ const (
 	// to a string.
 	LLVMStyle
 )
-
-// maxLengthShift is how we shift the MaxLength value.
-const maxLengthShift = 16
-
-// maxLengthMask is a mask for the maxLength value.
-const maxLengthMask = 0x1f << maxLengthShift
-
-// MaxLength returns an Option that limits the maximum length of a
-// demangled string. The maximum length is expressed as a power of 2,
-// so a value of 1 limits the returned string to 2 characters, and
-// a value of 16 limits the returned string to 65,536 characters.
-// The value must be between 1 and 30.
-func MaxLength(pow int) Option {
-	if pow <= 0 || pow > 30 {
-		panic("demangle: invalid MaxLength value")
-	}
-	return Option(pow << maxLengthShift)
-}
-
-// isMaxLength reports whether an Option holds a maximum length.
-func isMaxLength(opt Option) bool {
-	return opt&maxLengthMask != 0
-}
-
-// maxLength returns the maximum length stored in an Option.
-func maxLength(opt Option) int {
-	return 1 << ((opt & maxLengthMask) >> maxLengthShift)
-}
 
 // Filter demangles a C++ or Rust symbol name,
 // returning the human-readable C++ or Rust name.
@@ -254,19 +216,17 @@ func doDemangle(name string, options ...Option) (ret AST, err error) {
 	clones := true
 	verbose := false
 	for _, o := range options {
-		switch {
-		case o == NoParams:
+		switch o {
+		case NoParams:
 			params = false
 			clones = false
-		case o == NoClones:
+		case NoClones:
 			clones = false
-		case o == Verbose:
+		case Verbose:
 			verbose = true
-		case o == NoTemplateParams || o == NoEnclosingParams || o == LLVMStyle || isMaxLength(o):
+		case NoTemplateParams, LLVMStyle:
 			// These are valid options but only affect
 			// printing of the AST.
-		case o == NoRust:
-			// Unimportant here.
 		default:
 			return nil, fmt.Errorf("unrecognized demangler option %v", o)
 		}
@@ -700,7 +660,7 @@ func (st *state) prefix() AST {
 		}
 	}
 
-	var cast *Cast
+	isCast := false
 	for {
 		if len(st.str) == 0 {
 			st.fail("expected prefix")
@@ -712,10 +672,7 @@ func (st *state) prefix() AST {
 			un, isUnCast := st.unqualifiedName()
 			next = un
 			if isUnCast {
-				if tn, ok := un.(*TaggedName); ok {
-					un = tn.Name
-				}
-				cast = un.(*Cast)
+				isCast = true
 			}
 		} else {
 			switch st.str[0] {
@@ -769,10 +726,10 @@ func (st *state) prefix() AST {
 				var args []AST
 				args = st.templateArgs()
 				tmpl := &Template{Name: a, Args: args}
-				if cast != nil {
-					st.setTemplate(cast, tmpl)
+				if isCast {
+					st.setTemplate(a, tmpl)
 					st.clearTemplateArgs(args)
-					cast = nil
+					isCast = false
 				}
 				a = nil
 				next = tmpl
@@ -782,12 +739,8 @@ func (st *state) prefix() AST {
 				if a == nil {
 					st.fail("expected prefix")
 				}
-				if cast != nil {
-					var toTmpl *Template
-					if castTempl, ok := cast.To.(*Template); ok {
-						toTmpl = castTempl
-					}
-					st.setTemplate(cast, toTmpl)
+				if isCast {
+					st.setTemplate(a, nil)
 				}
 				return a
 			case 'M':
@@ -817,10 +770,10 @@ func (st *state) prefix() AST {
 				}
 				st.advance(1)
 				tmpl := &Template{Name: a, Args: args}
-				if cast != nil {
-					st.setTemplate(cast, tmpl)
+				if isCast {
+					st.setTemplate(a, tmpl)
 					st.clearTemplateArgs(args)
-					cast = nil
+					isCast = false
 				}
 				a = nil
 				next = tmpl
@@ -1762,7 +1715,7 @@ func (st *state) demangleCastTemplateArgs(tp AST, addSubst bool) AST {
 	return tp
 }
 
-// mergeQualifiers merges two qualifier lists into one.
+// mergeQualifiers merges two qualifer lists into one.
 func mergeQualifiers(q1AST, q2AST AST) AST {
 	if q1AST == nil {
 		return q2AST

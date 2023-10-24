@@ -33,8 +33,6 @@ Flags:
 		Dump instructions as they are parsed.
 	-dynlink
 		Support references to Go symbols defined in other shared libraries.
-	-e
-		No limit on number of errors reported.
 	-gensymabis
 		Write symbol ABI information to output file. Don't assemble.
 	-o file
@@ -47,8 +45,6 @@ Flags:
 		Enable spectre mitigations in list (all, ret).
 	-trimpath prefix
 		Remove prefix from recorded source file paths.
-	-v
-		Print debug output.
 
 Input language:
 

@@ -568,3 +568,17 @@ func fmtX(dst []byte, prec int, fmt byte, neg bool, mant uint64, exp int, flt *f
 
 	return dst
 }
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}

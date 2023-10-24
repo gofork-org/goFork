@@ -8,6 +8,7 @@
 // arguments. (pointer-to-nih types are okay though.)
 
 //go:build cgo
+// +build cgo
 
 package p
 

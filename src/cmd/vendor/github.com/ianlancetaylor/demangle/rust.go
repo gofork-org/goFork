@@ -40,15 +40,6 @@ func rustToString(name string, options []Option) (ret string, err error) {
 
 	name = name[2:]
 	rst := &rustState{orig: name, str: name}
-
-	for _, o := range options {
-		if o == NoTemplateParams {
-			rst.noGenericArgs = true
-		} else if isMaxLength(o) {
-			rst.max = maxLength(o)
-		}
-	}
-
 	rst.symbolName()
 
 	if len(rst.str) > 0 {
@@ -71,24 +62,18 @@ func rustToString(name string, options []Option) (ret string, err error) {
 		}
 	}
 
-	s := rst.buf.String()
-	if rst.max > 0 && len(s) > rst.max {
-		s = s[:rst.max]
-	}
-	return s, nil
+	return rst.buf.String(), nil
 }
 
 // A rustState holds the current state of demangling a Rust string.
 type rustState struct {
-	orig          string          // the original string being demangled
-	str           string          // remainder of string to demangle
-	off           int             // offset of str within original string
-	buf           strings.Builder // demangled string being built
-	skip          bool            // don't print, just skip
-	lifetimes     int64           // number of bound lifetimes
-	last          byte            // last byte written to buffer
-	noGenericArgs bool            // don't demangle generic arguments
-	max           int             // maximum output length
+	orig      string          // the original string being demangled
+	str       string          // remainder of string to demangle
+	off       int             // offset of str within original string
+	buf       strings.Builder // demangled string being built
+	skip      bool            // don't print, just skip
+	lifetimes int64           // number of bound lifetimes
+	last      byte            // last byte written to buffer
 }
 
 // fail panics with demangleErr, to be caught in rustToString.
@@ -119,10 +104,6 @@ func (rst *rustState) writeByte(c byte) {
 	if rst.skip {
 		return
 	}
-	if rst.max > 0 && rst.buf.Len() > rst.max {
-		rst.skip = true
-		return
-	}
 	rst.last = c
 	rst.buf.WriteByte(c)
 }
@@ -130,10 +111,6 @@ func (rst *rustState) writeByte(c byte) {
 // writeString writes a string to the buffer.
 func (rst *rustState) writeString(s string) {
 	if rst.skip {
-		return
-	}
-	if rst.max > 0 && rst.buf.Len() > rst.max {
-		rst.skip = true
 		return
 	}
 	if len(s) > 0 {
@@ -255,7 +232,15 @@ func (rst *rustState) path(needsSeparator bool) {
 			rst.writeString("::")
 		}
 		rst.writeByte('<')
-		rst.genericArgs()
+		first := true
+		for len(rst.str) > 0 && rst.str[0] != 'E' {
+			if first {
+				first = false
+			} else {
+				rst.writeString(", ")
+			}
+			rst.genericArg()
+		}
 		rst.writeByte('>')
 		rst.checkChar('E')
 	case 'B':
@@ -449,27 +434,6 @@ func (rst *rustState) expandPunycode(s string) string {
 	}
 
 	return string(output)
-}
-
-// genericArgs prints a list of generic arguments, without angle brackets.
-func (rst *rustState) genericArgs() {
-	if rst.noGenericArgs {
-		hold := rst.skip
-		rst.skip = true
-		defer func() {
-			rst.skip = hold
-		}()
-	}
-
-	first := true
-	for len(rst.str) > 0 && rst.str[0] != 'E' {
-		if first {
-			first = false
-		} else {
-			rst.writeString(", ")
-		}
-		rst.genericArg()
-	}
 }
 
 // genericArg parses:
@@ -760,7 +724,15 @@ func (rst *rustState) pathStartGenerics() bool {
 		rst.advance(1)
 		rst.path(false)
 		rst.writeByte('<')
-		rst.genericArgs()
+		first := true
+		for len(rst.str) > 0 && rst.str[0] != 'E' {
+			if first {
+				first = false
+			} else {
+				rst.writeString(", ")
+			}
+			rst.genericArg()
+		}
 		rst.checkChar('E')
 		return true
 	case 'B':
@@ -972,9 +944,6 @@ func (rst *rustState) backref(demangle func()) {
 	if rst.skip {
 		return
 	}
-	if rst.max > 0 && rst.buf.Len() > rst.max {
-		return
-	}
 
 	idx := int(idx64)
 	if int64(idx) != idx64 {
@@ -1017,13 +986,6 @@ func (rst *rustState) decimalNumber() int {
 // oldRustToString demangles a Rust symbol using the old demangling.
 // The second result reports whether this is a valid Rust mangled name.
 func oldRustToString(name string, options []Option) (string, bool) {
-	max := 0
-	for _, o := range options {
-		if isMaxLength(o) {
-			max = maxLength(o)
-		}
-	}
-
 	// We know that the string starts with _ZN.
 	name = name[3:]
 
@@ -1057,10 +1019,6 @@ func oldRustToString(name string, options []Option) (string, bool) {
 	// The name is a sequence of length-preceded identifiers.
 	var sb strings.Builder
 	for len(name) > 0 {
-		if max > 0 && sb.Len() > max {
-			break
-		}
-
 		if !isDigit(name[0]) {
 			return "", false
 		}
@@ -1157,9 +1115,5 @@ func oldRustToString(name string, options []Option) (string, bool) {
 		}
 	}
 
-	s := sb.String()
-	if max > 0 && len(s) > max {
-		s = s[:max]
-	}
-	return s, true
+	return sb.String(), true
 }

@@ -7,29 +7,25 @@
 package sysinfo
 
 import (
-	"internal/cpu"
+	internalcpu "internal/cpu"
 	"sync"
 )
 
-var cpuInfo struct {
+type cpuInfo struct {
 	once sync.Once
 	name string
 }
 
-func CPUName() string {
-	cpuInfo.once.Do(func() {
+var CPU cpuInfo
+
+func (cpu *cpuInfo) Name() string {
+	cpu.once.Do(func() {
 		// Try to get the information from internal/cpu.
-		if name := cpu.Name(); name != "" {
-			cpuInfo.name = name
+		if name := internalcpu.Name(); name != "" {
+			cpu.name = name
 			return
 		}
-
 		// TODO(martisch): use /proc/cpuinfo and /sys/devices/system/cpu/ on Linux as fallback.
-		if name := osCpuInfoName(); name != "" {
-			cpuInfo.name = name
-			return
-		}
 	})
-
-	return cpuInfo.name
+	return cpu.name
 }

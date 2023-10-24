@@ -69,7 +69,9 @@ func rewriteFile(fileSet *token.FileSet, pattern, replace ast.Expr, p *ast.File)
 			return reflect.Value{}
 		}
 		val = apply(rewriteVal, val)
-		clear(m)
+		for k := range m {
+			delete(m, k)
+		}
 		if match(m, pat, val) {
 			val = subst(m, repl, reflect.ValueOf(val.Interface().(ast.Node).Pos()))
 		}

@@ -7,7 +7,6 @@
 // This is a lot like ../testcarchive/main3.c.
 
 #include <signal.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,10 +29,8 @@ int main(int argc, char** argv) {
 	int verbose;
 	struct sigaction sa;
 	void* handle;
-	void (*catchSIGIO)(void);
-	void (*resetSIGIO)(void);
-	void (*awaitSIGIO)();
-	bool (*sawSIGIO)();
+	void (*fn1)(void);
+	int (*sawSIGIO)(void);
 	int i;
 	struct timespec ts;
 
@@ -41,7 +38,7 @@ int main(int argc, char** argv) {
 	setvbuf(stdout, NULL, _IONBF, 0);
 
 	if (verbose) {
-		fprintf(stderr, "calling sigaction\n");
+		printf("calling sigaction\n");
 	}
 
 	memset(&sa, 0, sizeof sa);
@@ -55,7 +52,7 @@ int main(int argc, char** argv) {
 	}
 
 	if (verbose) {
-		fprintf(stderr, "calling dlopen\n");
+		printf("calling dlopen\n");
 	}
 
 	handle = dlopen(argv[1], RTLD_NOW | RTLD_GLOBAL);
@@ -68,7 +65,7 @@ int main(int argc, char** argv) {
 	// installed for SIGIO.
 
 	if (verbose) {
-		fprintf(stderr, "raising SIGIO\n");
+		printf("raising SIGIO\n");
 	}
 
 	if (raise(SIGIO) < 0) {
@@ -76,7 +73,7 @@ int main(int argc, char** argv) {
 	}
 
 	if (verbose) {
-		fprintf(stderr, "waiting for sigioSeen\n");
+		printf("waiting for sigioSeen\n");
 	}
 
 	// Wait until the signal has been delivered.
@@ -97,23 +94,23 @@ int main(int argc, char** argv) {
 	// Tell the Go code to catch SIGIO.
 
 	if (verbose) {
-		fprintf(stderr, "calling dlsym\n");
+		printf("calling dlsym\n");
 	}
 
-	catchSIGIO = (void(*)(void))dlsym(handle, "CatchSIGIO");
-	if (catchSIGIO == NULL) {
+	fn1 = (void(*)(void))dlsym(handle, "CatchSIGIO");
+	if (fn1 == NULL) {
 		fprintf(stderr, "%s\n", dlerror());
 		exit(EXIT_FAILURE);
 	}
 
 	if (verbose) {
-		fprintf(stderr, "calling CatchSIGIO\n");
+		printf("calling CatchSIGIO\n");
 	}
 
-	catchSIGIO();
+	fn1();
 
 	if (verbose) {
-		fprintf(stderr, "raising SIGIO\n");
+		printf("raising SIGIO\n");
 	}
 
 	if (raise(SIGIO) < 0) {
@@ -121,21 +118,24 @@ int main(int argc, char** argv) {
 	}
 
 	if (verbose) {
-		fprintf(stderr, "calling dlsym\n");
+		printf("calling dlsym\n");
 	}
 
 	// Check that the Go code saw SIGIO.
-	awaitSIGIO = (void (*)(void))dlsym(handle, "AwaitSIGIO");
-	if (awaitSIGIO == NULL) {
+	sawSIGIO = (int (*)(void))dlsym(handle, "SawSIGIO");
+	if (sawSIGIO == NULL) {
 		fprintf(stderr, "%s\n", dlerror());
 		exit(EXIT_FAILURE);
 	}
 
 	if (verbose) {
-		fprintf(stderr, "calling AwaitSIGIO\n");
+		printf("calling SawSIGIO\n");
 	}
 
-	awaitSIGIO();
+	if (!sawSIGIO()) {
+		fprintf(stderr, "Go handler did not see SIGIO\n");
+		exit(EXIT_FAILURE);
+	}
 
 	if (sigioSeen != 0) {
 		fprintf(stderr, "C handler saw SIGIO when only Go handler should have\n");
@@ -145,29 +145,23 @@ int main(int argc, char** argv) {
 	// Tell the Go code to stop catching SIGIO.
 
 	if (verbose) {
-		fprintf(stderr, "calling dlsym\n");
+		printf("calling dlsym\n");
 	}
 
-	resetSIGIO = (void (*)(void))dlsym(handle, "ResetSIGIO");
-	if (resetSIGIO == NULL) {
+	fn1 = (void(*)(void))dlsym(handle, "ResetSIGIO");
+	if (fn1 == NULL) {
 		fprintf(stderr, "%s\n", dlerror());
 		exit(EXIT_FAILURE);
 	}
 
 	if (verbose) {
-		fprintf(stderr, "calling ResetSIGIO\n");
+		printf("calling ResetSIGIO\n");
 	}
 
-	resetSIGIO();
-
-	sawSIGIO = (bool (*)(void))dlsym(handle, "SawSIGIO");
-	if (sawSIGIO == NULL) {
-		fprintf(stderr, "%s\n", dlerror());
-		exit(EXIT_FAILURE);
-	}
+	fn1();
 
 	if (verbose) {
-		fprintf(stderr, "raising SIGIO\n");
+		printf("raising SIGIO\n");
 	}
 
 	if (raise(SIGIO) < 0) {
@@ -175,7 +169,7 @@ int main(int argc, char** argv) {
 	}
 
 	if (verbose) {
-		fprintf(stderr, "calling SawSIGIO\n");
+		printf("calling SawSIGIO\n");
 	}
 
 	if (sawSIGIO()) {
@@ -184,7 +178,7 @@ int main(int argc, char** argv) {
 	}
 
 	if (verbose) {
-		fprintf(stderr, "waiting for sigioSeen\n");
+		printf("waiting for sigioSeen\n");
 	}
 
 	// Wait until the signal has been delivered.

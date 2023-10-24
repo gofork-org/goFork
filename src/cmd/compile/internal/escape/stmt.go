@@ -31,7 +31,7 @@ func (e *escape) stmt(n ir.Node) {
 	default:
 		base.Fatalf("unexpected stmt: %v", n)
 
-	case ir.OFALL, ir.OINLMARK:
+	case ir.ODCLCONST, ir.ODCLTYPE, ir.OFALL, ir.OINLMARK:
 		// nop
 
 	case ir.OBREAK, ir.OCONTINUE, ir.OGOTO:
@@ -92,9 +92,8 @@ func (e *escape) stmt(n ir.Node) {
 		n := n.(*ir.RangeStmt)
 		base.Assert(!n.DistinctVars) // Should all be rewritten before escape analysis
 
-		// X is evaluated outside the loop and persists until the loop
-		// terminates.
-		tmp := e.newLoc(nil, true)
+		// X is evaluated outside the loop.
+		tmp := e.newLoc(nil, false)
 		e.expr(tmp.asHole(), n.X)
 
 		e.loopDepth++
@@ -177,13 +176,13 @@ func (e *escape) stmt(n ir.Node) {
 		e.reassigned(ks, n)
 	case ir.ORETURN:
 		n := n.(*ir.ReturnStmt)
-		results := e.curfn.Type().Results()
+		results := e.curfn.Type().Results().FieldSlice()
 		dsts := make([]ir.Node, len(results))
 		for i, res := range results {
 			dsts[i] = res.Nname.(*ir.Name)
 		}
 		e.assignList(dsts, n.Results, "return", n)
-	case ir.OCALLFUNC, ir.OCALLMETH, ir.OCALLINTER, ir.OINLCALL, ir.OCLEAR, ir.OCLOSE, ir.OCOPY, ir.ODELETE, ir.OPANIC, ir.OPRINT, ir.OPRINTLN, ir.ORECOVERFP:
+	case ir.OCALLFUNC, ir.OCALLMETH, ir.OCALLINTER, ir.OINLCALL, ir.OCLEAR, ir.OCLOSE, ir.OCOPY, ir.ODELETE, ir.OPANIC, ir.OPRINT, ir.OPRINTN, ir.ORECOVER:
 		e.call(nil, n)
 	case ir.OGO, ir.ODEFER:
 		n := n.(*ir.GoDeferStmt)

@@ -16,7 +16,7 @@ import (
 type fileStat struct {
 	name string
 
-	// from ByHandleFileInformation, Win32FileAttributeData, Win32finddata, and GetFileInformationByHandleEx
+	// from ByHandleFileInformation, Win32FileAttributeData and Win32finddata
 	FileAttributes uint32
 	CreationTime   syscall.Filetime
 	LastAccessTime syscall.Filetime
@@ -24,7 +24,7 @@ type fileStat struct {
 	FileSizeHigh   uint32
 	FileSizeLow    uint32
 
-	// from Win32finddata and GetFileInformationByHandleEx
+	// from Win32finddata
 	ReparseTag uint32
 
 	// what syscall.GetFileType returns
@@ -80,40 +80,6 @@ func newFileStatFromGetFileInformationByHandle(path string, h syscall.Handle) (f
 	}, nil
 }
 
-// newFileStatFromFileIDBothDirInfo copies all required information
-// from windows.FILE_ID_BOTH_DIR_INFO d into the newly created fileStat.
-func newFileStatFromFileIDBothDirInfo(d *windows.FILE_ID_BOTH_DIR_INFO) *fileStat {
-	// The FILE_ID_BOTH_DIR_INFO MSDN documentations isn't completely correct.
-	// FileAttributes can contain any file attributes that is currently set on the file,
-	// not just the ones documented.
-	// EaSize contains the reparse tag if the file is a reparse point.
-	return &fileStat{
-		FileAttributes: d.FileAttributes,
-		CreationTime:   d.CreationTime,
-		LastAccessTime: d.LastAccessTime,
-		LastWriteTime:  d.LastWriteTime,
-		FileSizeHigh:   uint32(d.EndOfFile >> 32),
-		FileSizeLow:    uint32(d.EndOfFile),
-		ReparseTag:     d.EaSize,
-		idxhi:          uint32(d.FileID >> 32),
-		idxlo:          uint32(d.FileID),
-	}
-}
-
-// newFileStatFromFileFullDirInfo copies all required information
-// from windows.FILE_FULL_DIR_INFO d into the newly created fileStat.
-func newFileStatFromFileFullDirInfo(d *windows.FILE_FULL_DIR_INFO) *fileStat {
-	return &fileStat{
-		FileAttributes: d.FileAttributes,
-		CreationTime:   d.CreationTime,
-		LastAccessTime: d.LastAccessTime,
-		LastWriteTime:  d.LastWriteTime,
-		FileSizeHigh:   uint32(d.EndOfFile >> 32),
-		FileSizeLow:    uint32(d.EndOfFile),
-		ReparseTag:     d.EaSize,
-	}
-}
-
 // newFileStatFromWin32finddata copies all required information
 // from syscall.Win32finddata d into the newly created fileStat.
 func newFileStatFromWin32finddata(d *syscall.Win32finddata) *fileStat {
@@ -133,16 +99,6 @@ func newFileStatFromWin32finddata(d *syscall.Win32finddata) *fileStat {
 		fs.ReparseTag = d.Reserved0
 	}
 	return fs
-}
-
-// isReparseTagNameSurrogate determines whether a tag's associated
-// reparse point is a surrogate for another named entity (for example, a mounted folder).
-//
-// See https://learn.microsoft.com/en-us/windows/win32/api/winnt/nf-winnt-isreparsetagnamesurrogate
-// and https://learn.microsoft.com/en-us/windows/win32/fileio/reparse-point-tags.
-func (fs *fileStat) isReparseTagNameSurrogate() bool {
-	// True for IO_REPARSE_TAG_SYMLINK and IO_REPARSE_TAG_MOUNT_POINT.
-	return fs.ReparseTag&0x20000000 != 0
 }
 
 func (fs *fileStat) isSymlink() bool {
@@ -215,7 +171,7 @@ func (fs *fileStat) loadFileId() error {
 	}
 	var path string
 	if fs.appendNameToPath {
-		path = fixLongPath(fs.path + `\` + fs.name)
+		path = fs.path + `\` + fs.name
 	} else {
 		path = fs.path
 	}

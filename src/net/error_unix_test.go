@@ -13,6 +13,7 @@ import (
 )
 
 var (
+	errTimedout       = syscall.ETIMEDOUT
 	errOpNotSupported = syscall.EOPNOTSUPP
 
 	abortedConnRequestErrors = []error{syscall.ECONNABORTED} // see accept in fd_unix.go

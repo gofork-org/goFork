@@ -1251,33 +1251,33 @@ func converterForType(typ string) driver.ValueConverter {
 func colTypeToReflectType(typ string) reflect.Type {
 	switch typ {
 	case "bool":
-		return reflect.TypeFor[bool]()
+		return reflect.TypeOf(false)
 	case "nullbool":
-		return reflect.TypeFor[NullBool]()
+		return reflect.TypeOf(NullBool{})
 	case "int16":
-		return reflect.TypeFor[int16]()
+		return reflect.TypeOf(int16(0))
 	case "nullint16":
-		return reflect.TypeFor[NullInt16]()
+		return reflect.TypeOf(NullInt16{})
 	case "int32":
-		return reflect.TypeFor[int32]()
+		return reflect.TypeOf(int32(0))
 	case "nullint32":
-		return reflect.TypeFor[NullInt32]()
+		return reflect.TypeOf(NullInt32{})
 	case "string":
-		return reflect.TypeFor[string]()
+		return reflect.TypeOf("")
 	case "nullstring":
-		return reflect.TypeFor[NullString]()
+		return reflect.TypeOf(NullString{})
 	case "int64":
-		return reflect.TypeFor[int64]()
+		return reflect.TypeOf(int64(0))
 	case "nullint64":
-		return reflect.TypeFor[NullInt64]()
+		return reflect.TypeOf(NullInt64{})
 	case "float64":
-		return reflect.TypeFor[float64]()
+		return reflect.TypeOf(float64(0))
 	case "nullfloat64":
-		return reflect.TypeFor[NullFloat64]()
+		return reflect.TypeOf(NullFloat64{})
 	case "datetime":
-		return reflect.TypeFor[time.Time]()
+		return reflect.TypeOf(time.Time{})
 	case "any":
-		return reflect.TypeFor[any]()
+		return reflect.TypeOf(new(any)).Elem()
 	}
 	panic("invalid fakedb column type of " + typ)
 }

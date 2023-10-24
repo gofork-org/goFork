@@ -26,6 +26,7 @@ package objectpath
 import (
 	"fmt"
 	"go/types"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -120,7 +121,8 @@ func For(obj types.Object) (Path, error) {
 // An Encoder amortizes the cost of encoding the paths of multiple objects.
 // The zero value of an Encoder is ready to use.
 type Encoder struct {
-	scopeMemo map[*types.Scope][]types.Object // memoization of scopeObjects
+	scopeMemo        map[*types.Scope][]types.Object // memoization of scopeObjects
+	namedMethodsMemo map[*types.Named][]*types.Func  // memoization of namedMethods()
 }
 
 // For returns the path to an object relative to its package,
@@ -312,12 +314,10 @@ func (enc *Encoder) For(obj types.Object) (Path, error) {
 		// Inspect declared methods of defined types.
 		if T, ok := o.Type().(*types.Named); ok {
 			path = append(path, opType)
-			// The method index here is always with respect
-			// to the underlying go/types data structures,
-			// which ultimately derives from source order
-			// and must be preserved by export data.
-			for i := 0; i < T.NumMethods(); i++ {
-				m := T.Method(i)
+			// Note that method index here is always with respect
+			// to canonical ordering of methods, regardless of how
+			// they appear in the underlying type.
+			for i, m := range enc.namedMethods(T) {
 				path2 := appendOpArg(path, opMethod, i)
 				if m == obj {
 					return Path(path2), nil // found declared method
@@ -418,12 +418,8 @@ func (enc *Encoder) concreteMethod(meth *types.Func) (Path, bool) {
 	path := make([]byte, 0, len(name)+8)
 	path = append(path, name...)
 	path = append(path, opType)
-
-	// Method indices are w.r.t. the go/types data structures,
-	// ultimately deriving from source order,
-	// which is preserved by export data.
-	for i := 0; i < named.NumMethods(); i++ {
-		if named.Method(i) == meth {
+	for i, m := range enc.namedMethods(named) {
+		if m == meth {
 			path = appendOpArg(path, opMethod, i)
 			return Path(path), true
 		}
@@ -538,11 +534,11 @@ func findTypeParam(obj types.Object, list *typeparams.TypeParamList, path []byte
 
 // Object returns the object denoted by path p within the package pkg.
 func Object(pkg *types.Package, p Path) (types.Object, error) {
-	pathstr := string(p)
-	if pathstr == "" {
+	if p == "" {
 		return nil, fmt.Errorf("empty path")
 	}
 
+	pathstr := string(p)
 	var pkgobj, suffix string
 	if dot := strings.IndexByte(pathstr, opType); dot < 0 {
 		pkgobj = pathstr
@@ -701,10 +697,11 @@ func Object(pkg *types.Package, p Path) (types.Object, error) {
 				obj = t.Method(index) // Id-ordered
 
 			case *types.Named:
-				if index >= t.NumMethods() {
-					return nil, fmt.Errorf("method index %d out of range [0-%d)", index, t.NumMethods())
+				methods := namedMethods(t) // (unmemoized)
+				if index >= len(methods) {
+					return nil, fmt.Errorf("method index %d out of range [0-%d)", index, len(methods))
 				}
-				obj = t.Method(index)
+				obj = methods[index] // Id-ordered
 
 			default:
 				return nil, fmt.Errorf("cannot apply %q to %s (got %T, want interface or named)", code, t, t)
@@ -729,6 +726,33 @@ func Object(pkg *types.Package, p Path) (types.Object, error) {
 	}
 
 	return obj, nil // success
+}
+
+// namedMethods returns the methods of a Named type in ascending Id order.
+func namedMethods(named *types.Named) []*types.Func {
+	methods := make([]*types.Func, named.NumMethods())
+	for i := range methods {
+		methods[i] = named.Method(i)
+	}
+	sort.Slice(methods, func(i, j int) bool {
+		return methods[i].Id() < methods[j].Id()
+	})
+	return methods
+}
+
+// namedMethods is a memoization of the namedMethods function. Callers must not modify the result.
+func (enc *Encoder) namedMethods(named *types.Named) []*types.Func {
+	m := enc.namedMethodsMemo
+	if m == nil {
+		m = make(map[*types.Named][]*types.Func)
+		enc.namedMethodsMemo = m
+	}
+	methods, ok := m[named]
+	if !ok {
+		methods = namedMethods(named) // allocates and sorts
+		m[named] = methods
+	}
+	return methods
 }
 
 // scopeObjects is a memoization of scope objects.

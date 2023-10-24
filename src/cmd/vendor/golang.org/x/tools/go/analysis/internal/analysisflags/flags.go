@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"go/token"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"strconv"
@@ -330,7 +331,7 @@ func PrintPlain(fset *token.FileSet, diag analysis.Diagnostic) {
 		if !end.IsValid() {
 			end = posn
 		}
-		data, _ := os.ReadFile(posn.Filename)
+		data, _ := ioutil.ReadFile(posn.Filename)
 		lines := strings.Split(string(data), "\n")
 		for i := posn.Line - Context; i <= end.Line+Context; i++ {
 			if 1 <= i && i <= len(lines) {

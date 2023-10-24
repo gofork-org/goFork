@@ -110,7 +110,7 @@ func (t *TypeParam) iface() *Interface {
 	var ityp *Interface
 	switch u := under(bound).(type) {
 	case *Basic:
-		if !isValid(u) {
+		if u == Typ[Invalid] {
 			// error is reported elsewhere
 			return &emptyInterface
 		}
@@ -134,7 +134,7 @@ func (t *TypeParam) iface() *Interface {
 		// pos is used for tracing output; start with the type parameter position.
 		pos := t.obj.pos
 		// use the (original or possibly instantiated) type bound position if we have one
-		if n := asNamed(bound); n != nil {
+		if n, _ := bound.(*Named); n != nil {
 			pos = n.obj.pos
 		}
 		computeInterfaceTypeSet(t.check, pos, ityp)

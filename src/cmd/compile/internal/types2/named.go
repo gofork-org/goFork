@@ -141,7 +141,7 @@ const (
 // If the given type name obj doesn't have a type yet, its type is set to the returned named type.
 // The underlying type must not be a *Named.
 func NewNamed(obj *TypeName, underlying Type, methods []*Func) *Named {
-	if asNamed(underlying) != nil {
+	if _, ok := underlying.(*Named); ok {
 		panic("underlying type must not be *Named")
 	}
 	return (*Checker)(nil).newNamed(obj, underlying, methods)
@@ -224,7 +224,7 @@ func (n *Named) setState(state namedState) {
 	atomic.StoreUint32(&n.state_, uint32(state))
 }
 
-// newNamed is like NewNamed but with a *Checker receiver.
+// newNamed is like NewNamed but with a *Checker receiver and additional orig argument.
 func (check *Checker) newNamed(obj *TypeName, underlying Type, methods []*Func) *Named {
 	typ := &Named{check: check, obj: obj, fromRHS: underlying, underlying: underlying, methods: methods}
 	if obj.typ == nil {
@@ -434,7 +434,7 @@ func (t *Named) SetUnderlying(underlying Type) {
 	if underlying == nil {
 		panic("underlying type must not be nil")
 	}
-	if asNamed(underlying) != nil {
+	if _, ok := underlying.(*Named); ok {
 		panic("underlying type must not be *Named")
 	}
 	t.resolve().underlying = underlying
@@ -550,6 +550,12 @@ loop:
 	return u
 }
 
+func (n *Named) setUnderlying(typ Type) {
+	if n != nil {
+		n.underlying = typ
+	}
+}
+
 func (n *Named) lookupMethod(pkg *Package, name string, foldCase bool) (int, *Func) {
 	n.resolve()
 	// If n is an instance, we may not have yet instantiated all of its methods.
@@ -592,7 +598,7 @@ func (n *Named) expandUnderlying() Type {
 	orig := n.inst.orig
 	targs := n.inst.targs
 
-	if asNamed(orig.underlying) != nil {
+	if _, unexpanded := orig.underlying.(*Named); unexpanded {
 		// We should only get a Named underlying type here during type checking
 		// (for example, in recursive type declarations).
 		assert(check != nil)
@@ -627,18 +633,11 @@ func (n *Named) expandUnderlying() Type {
 				old := iface
 				iface = check.newInterface()
 				iface.embeddeds = old.embeddeds
-				assert(old.complete) // otherwise we are copying incomplete data
 				iface.complete = old.complete
 				iface.implicit = old.implicit // should be false but be conservative
 				underlying = iface
 			}
 			iface.methods = methods
-			iface.tset = nil // recompute type set with new methods
-
-			// If check != nil, check.newInterface will have saved the interface for later completion.
-			if check == nil { // golang/go#61561: all newly created interfaces must be fully evaluated
-				iface.typeSet()
-			}
 		}
 	}
 
@@ -650,7 +649,7 @@ func (n *Named) expandUnderlying() Type {
 //
 // TODO(rfindley): eliminate this function or give it a better name.
 func safeUnderlying(typ Type) Type {
-	if t := asNamed(typ); t != nil {
+	if t, _ := typ.(*Named); t != nil {
 		return t.underlying
 	}
 	return typ.Underlying()

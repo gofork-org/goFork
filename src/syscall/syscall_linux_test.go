@@ -6,7 +6,6 @@ package syscall_test
 
 import (
 	"fmt"
-	"internal/testenv"
 	"io"
 	"io/fs"
 	"os"
@@ -198,13 +197,6 @@ func TestSyscallNoError(t *testing.T) {
 
 	if os.Getuid() != 0 {
 		t.Skip("skipping root only test")
-	}
-	if testing.Short() && testenv.Builder() != "" && os.Getenv("USER") == "swarming" {
-		// The Go build system's swarming user is known not to be root.
-		// Unfortunately, it sometimes appears as root due the current
-		// implementation of a no-network check using 'unshare -n -r'.
-		// Since this test does need root to work, we need to skip it.
-		t.Skip("skipping root only test on a non-root builder")
 	}
 
 	if runtime.GOOS == "android" {
@@ -523,13 +515,6 @@ func killAThread(c <-chan struct{}) {
 func TestSetuidEtc(t *testing.T) {
 	if syscall.Getuid() != 0 {
 		t.Skip("skipping root only test")
-	}
-	if testing.Short() && testenv.Builder() != "" && os.Getenv("USER") == "swarming" {
-		// The Go build system's swarming user is known not to be root.
-		// Unfortunately, it sometimes appears as root due the current
-		// implementation of a no-network check using 'unshare -n -r'.
-		// Since this test does need root to work, we need to skip it.
-		t.Skip("skipping root only test on a non-root builder")
 	}
 	if _, err := os.Stat("/etc/alpine-release"); err == nil {
 		t.Skip("skipping glibc test on alpine - go.dev/issue/19938")

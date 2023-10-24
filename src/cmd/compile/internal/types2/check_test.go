@@ -34,13 +34,11 @@ import (
 	"cmd/compile/internal/syntax"
 	"flag"
 	"fmt"
-	"internal/buildcfg"
 	"internal/testenv"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -125,23 +123,12 @@ func testFiles(t *testing.T, filenames []string, srcs [][]byte, colDelta uint, m
 	}
 
 	var conf Config
-	var goexperiment string
 	flags := flag.NewFlagSet("", flag.PanicOnError)
 	flags.StringVar(&conf.GoVersion, "lang", "", "")
-	flags.StringVar(&goexperiment, "goexperiment", "", "")
 	flags.BoolVar(&conf.FakeImportC, "fakeImportC", false, "")
 	if err := parseFlags(srcs[0], flags); err != nil {
 		t.Fatal(err)
 	}
-	exp, err := buildcfg.ParseGOEXPERIMENT(runtime.GOOS, runtime.GOARCH, goexperiment)
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := buildcfg.Experiment
-	defer func() {
-		buildcfg.Experiment = old
-	}()
-	buildcfg.Experiment = *exp
 
 	files, errlist := parseFiles(t, filenames, srcs, 0)
 
@@ -176,17 +163,7 @@ func testFiles(t *testing.T, filenames []string, srcs [][]byte, colDelta uint, m
 		opt(&conf)
 	}
 
-	// Provide Config.Info with all maps so that info recording is tested.
-	info := Info{
-		Types:      make(map[syntax.Expr]TypeAndValue),
-		Instances:  make(map[*syntax.Name]Instance),
-		Defs:       make(map[*syntax.Name]Object),
-		Uses:       make(map[*syntax.Name]Object),
-		Implicits:  make(map[syntax.Node]Object),
-		Selections: make(map[*syntax.SelectorExpr]*Selection),
-		Scopes:     make(map[syntax.Node]*Scope),
-	}
-	conf.Check(pkgName, files, &info)
+	conf.Check(pkgName, files, nil)
 
 	if listErrors {
 		return
@@ -368,12 +345,6 @@ func TestIssue47243_TypedRHS(t *testing.T) {
 }
 
 func TestCheck(t *testing.T) {
-	old := buildcfg.Experiment.Range
-	defer func() {
-		buildcfg.Experiment.Range = old
-	}()
-	buildcfg.Experiment.Range = true
-
 	DefPredeclaredTestFuncs()
 	testDirFiles(t, "../../../../internal/types/testdata/check", 50, false) // TODO(gri) narrow column tolerance
 }

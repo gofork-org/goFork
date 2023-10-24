@@ -7,10 +7,9 @@ package runtime
 import "unsafe"
 
 const (
-	_EINTR     = 0x4
-	_EFAULT    = 0xe
-	_EAGAIN    = 0x23
-	_ETIMEDOUT = 0x3c
+	_EINTR  = 0x4
+	_EFAULT = 0xe
+	_EAGAIN = 0x23
 
 	_O_WRONLY   = 0x1
 	_O_NONBLOCK = 0x4

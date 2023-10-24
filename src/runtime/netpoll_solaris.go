@@ -219,9 +219,9 @@ func netpollBreak() {
 // delay < 0: blocks indefinitely
 // delay == 0: does not block, just polls
 // delay > 0: block for up to that many nanoseconds
-func netpoll(delay int64) (gList, int32) {
+func netpoll(delay int64) gList {
 	if portfd == -1 {
-		return gList{}, 0
+		return gList{}
 	}
 
 	var wait *timespec
@@ -259,13 +259,12 @@ retry:
 		// If a timed sleep was interrupted and there are no events,
 		// just return to recalculate how long we should sleep now.
 		if delay > 0 {
-			return gList{}, 0
+			return gList{}
 		}
 		goto retry
 	}
 
 	var toRun gList
-	delta := int32(0)
 	for i := 0; i < int(n); i++ {
 		ev := &events[i]
 
@@ -325,9 +324,9 @@ retry:
 			// about the event port on SmartOS.
 			//
 			// See golang.org/x/issue/30840.
-			delta += netpollready(&toRun, pd, mode)
+			netpollready(&toRun, pd, mode)
 		}
 	}
 
-	return toRun, delta
+	return toRun
 }

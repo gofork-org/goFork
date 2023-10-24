@@ -1396,11 +1396,6 @@ func TestIsNil(t *testing.T) {
 	NotNil(fi, t)
 }
 
-func setField[S, V any](in S, offset uintptr, value V) (out S) {
-	*(*V)(unsafe.Add(unsafe.Pointer(&in), offset)) = value
-	return in
-}
-
 func TestIsZero(t *testing.T) {
 	for i, tt := range []struct {
 		x    any
@@ -1434,14 +1429,14 @@ func TestIsZero(t *testing.T) {
 		{float32(1.2), false},
 		{float64(0), true},
 		{float64(1.2), false},
-		{math.Copysign(0, -1), true},
+		{math.Copysign(0, -1), false},
 		{complex64(0), true},
 		{complex64(1.2), false},
 		{complex128(0), true},
 		{complex128(1.2), false},
-		{complex(math.Copysign(0, -1), 0), true},
-		{complex(0, math.Copysign(0, -1)), true},
-		{complex(math.Copysign(0, -1), math.Copysign(0, -1)), true},
+		{complex(math.Copysign(0, -1), 0), false},
+		{complex(0, math.Copysign(0, -1)), false},
+		{complex(math.Copysign(0, -1), math.Copysign(0, -1)), false},
 		{uintptr(0), true},
 		{uintptr(128), false},
 		// Array
@@ -1490,14 +1485,6 @@ func TestIsZero(t *testing.T) {
 		{struct{ s []int }{[]int{1}}, false},  // incomparable struct
 		{struct{ Value }{}, true},
 		{struct{ Value }{ValueOf(0)}, false},
-		{struct{ _, a, _ uintptr }{}, true}, // comparable struct with blank fields
-		{setField(struct{ _, a, _ uintptr }{}, 0*unsafe.Sizeof(uintptr(0)), 1), true},
-		{setField(struct{ _, a, _ uintptr }{}, 1*unsafe.Sizeof(uintptr(0)), 1), false},
-		{setField(struct{ _, a, _ uintptr }{}, 2*unsafe.Sizeof(uintptr(0)), 1), true},
-		{struct{ _, a, _ func() }{}, true}, // incomparable struct with blank fields
-		{setField(struct{ _, a, _ func() }{}, 0*unsafe.Sizeof((func())(nil)), func() {}), true},
-		{setField(struct{ _, a, _ func() }{}, 1*unsafe.Sizeof((func())(nil)), func() {}), false},
-		{setField(struct{ _, a, _ func() }{}, 2*unsafe.Sizeof((func())(nil)), func() {}), true},
 		// UnsafePointer
 		{(unsafe.Pointer)(nil), true},
 		{(unsafe.Pointer)(new(int)), false},
@@ -1719,12 +1706,6 @@ func TestChan(t *testing.T) {
 		if i, ok := cv.Recv(); i.Int() != 0 || ok {
 			t.Errorf("after close Recv %d, %t", i.Int(), ok)
 		}
-		// Closing a read-only channel
-		shouldPanic("", func() {
-			c := make(<-chan int, 1)
-			cv := ValueOf(c)
-			cv.Close()
-		})
 	}
 
 	// check creation of unbuffered channel

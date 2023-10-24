@@ -265,7 +265,8 @@ func (p *noder) pragma(pos syntax.Pos, blankLine bool, text string, old syntax.P
 			// user didn't provide one.
 			target = objabi.PathToPrefix(base.Ctxt.Pkgpath) + "." + f[1]
 		} else {
-			panic("missing pkgpath")
+			p.error(syntax.Error{Pos: pos, Msg: "//go:linkname requires linkname argument or -p compiler flag"})
+			break
 		}
 		p.linknames = append(p.linknames, linkname{pos, f[1], target})
 

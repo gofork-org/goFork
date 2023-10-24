@@ -192,10 +192,10 @@ func (check *Checker) verify(pos syntax.Pos, tparams []*TypeParam, targs []Type,
 func (check *Checker) implements(pos syntax.Pos, V, T Type, constraint bool, cause *string) bool {
 	Vu := under(V)
 	Tu := under(T)
-	if !isValid(Vu) || !isValid(Tu) {
+	if Vu == Typ[Invalid] || Tu == Typ[Invalid] {
 		return true // avoid follow-on errors
 	}
-	if p, _ := Vu.(*Pointer); p != nil && !isValid(under(p.base)) {
+	if p, _ := Vu.(*Pointer); p != nil && under(p.base) == Typ[Invalid] {
 		return true // avoid follow-on errors (see go.dev/issue/49541 for an example)
 	}
 

@@ -35,7 +35,7 @@ func openGoFile(f *os.File) (*File, error) {
 L:
 	for _, e := range a.Entries {
 		switch e.Type {
-		case archive.EntryPkgDef, archive.EntrySentinelNonObj:
+		case archive.EntryPkgDef:
 			continue
 		case archive.EntryGoObj:
 			o := e.Obj

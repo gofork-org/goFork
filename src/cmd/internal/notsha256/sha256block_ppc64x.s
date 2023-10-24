@@ -9,6 +9,8 @@
 //
 
 //go:build !purego && (ppc64 || ppc64le)
+// +build !purego
+// +build ppc64 ppc64le
 
 // Based on CRYPTOGAMS code with the following comment:
 // # ====================================================================

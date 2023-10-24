@@ -335,9 +335,9 @@ func processType(t *ast.TypeSpec) {
 }
 
 func generateHelpers() {
-	for _, typ := range []string{"CaseClause", "CommClause", "Name", "Node"} {
+	for _, typ := range []string{"CaseClause", "CommClause", "Name", "Node", "Ntype"} {
 		ptr := "*"
-		if typ == "Node" {
+		if typ == "Node" || typ == "Ntype" {
 			ptr = "" // interfaces don't need *
 		}
 		fmt.Fprintf(&buf, "\n")

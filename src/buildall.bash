@@ -6,12 +6,8 @@
 # Usage: buildall.bash [-e] [pattern]
 #
 # buildall.bash builds the standard library for all Go-supported
-# architectures.
-#
-# Originally the Go build system used it as a smoke test to quickly
-# flag portability issues in builders named "misc-compile" or "all-compile".
-# As of CL 464955, the build system uses make.bash -compile-only instead,
-# so this script no longer runs in any automated fashion.
+# architectures. It is used by the "misc-compile" trybot builders,
+# as a smoke test to quickly flag portability issues.
 #
 # Options:
 #   -e: stop at first failure

@@ -20,17 +20,13 @@ import (
 const cgoAvailable = true
 
 const (
-	_DNS_ERROR_RCODE_NAME_ERROR = syscall.Errno(9003)
-	_DNS_INFO_NO_RECORDS        = syscall.Errno(9501)
-
 	_WSAHOST_NOT_FOUND = syscall.Errno(11001)
 	_WSATRY_AGAIN      = syscall.Errno(11002)
-	_WSATYPE_NOT_FOUND = syscall.Errno(10109)
 )
 
 func winError(call string, err error) error {
 	switch err {
-	case _WSAHOST_NOT_FOUND, _DNS_ERROR_RCODE_NAME_ERROR, _DNS_INFO_NO_RECORDS:
+	case _WSAHOST_NOT_FOUND:
 		return errNoSuchHost
 	}
 	return os.NewSyscallError(call, err)
@@ -95,11 +91,19 @@ func (r *Resolver) lookupHost(ctx context.Context, name string) ([]string, error
 	return addrs, nil
 }
 
-func (r *Resolver) lookupIP(ctx context.Context, network, name string) ([]IPAddr, error) {
-	if order, conf := systemConf().hostLookupOrder(r, name); order != hostLookupCgo {
-		return r.goLookupIP(ctx, network, name, order, conf)
-	}
+// preferGoOverWindows reports whether the resolver should use the
+// pure Go implementation rather than making win32 calls to ask the
+// kernel for its answer.
+func (r *Resolver) preferGoOverWindows() bool {
+	conf := systemConf()
+	order, _ := conf.hostLookupOrder(r, "") // name is unused
+	return order != hostLookupCgo
+}
 
+func (r *Resolver) lookupIP(ctx context.Context, network, name string) ([]IPAddr, error) {
+	if r.preferGoOverWindows() {
+		return r.goLookupIP(ctx, network, name)
+	}
 	// TODO(bradfitz,brainman): use ctx more. See TODO below.
 
 	var family int32 = syscall.AF_UNSPEC
@@ -196,51 +200,37 @@ func (r *Resolver) lookupIP(ctx context.Context, network, name string) ([]IPAddr
 }
 
 func (r *Resolver) lookupPort(ctx context.Context, network, service string) (int, error) {
-	if systemConf().mustUseGoResolver(r) {
+	if r.preferGoOverWindows() {
 		return lookupPortMap(network, service)
 	}
 
 	// TODO(bradfitz): finish ctx plumbing. Nothing currently depends on this.
 	acquireThread()
 	defer releaseThread()
-
-	var hints syscall.AddrinfoW
-
+	var stype int32
 	switch network {
-	case "ip": // no hints
-	case "tcp", "tcp4", "tcp6":
-		hints.Socktype = syscall.SOCK_STREAM
-		hints.Protocol = syscall.IPPROTO_TCP
-	case "udp", "udp4", "udp6":
-		hints.Socktype = syscall.SOCK_DGRAM
-		hints.Protocol = syscall.IPPROTO_UDP
-	default:
-		return 0, &DNSError{Err: "unknown network", Name: network + "/" + service}
+	case "tcp4", "tcp6":
+		stype = syscall.SOCK_STREAM
+	case "udp4", "udp6":
+		stype = syscall.SOCK_DGRAM
 	}
-
-	switch ipVersion(network) {
-	case '4':
-		hints.Family = syscall.AF_INET
-	case '6':
-		hints.Family = syscall.AF_INET6
+	hints := syscall.AddrinfoW{
+		Family:   syscall.AF_UNSPEC,
+		Socktype: stype,
+		Protocol: syscall.IPPROTO_IP,
 	}
-
 	var result *syscall.AddrinfoW
 	e := syscall.GetAddrInfoW(nil, syscall.StringToUTF16Ptr(service), &hints, &result)
 	if e != nil {
 		if port, err := lookupPortMap(network, service); err == nil {
 			return port, nil
 		}
-
-		// The _WSATYPE_NOT_FOUND error is returned by GetAddrInfoW
-		// when the service name is unknown. We are also checking
-		// for _WSAHOST_NOT_FOUND here to match the cgo (unix) version
-		// cgo_unix.go (cgoLookupServicePort).
-		if e == _WSATYPE_NOT_FOUND || e == _WSAHOST_NOT_FOUND {
-			return 0, &DNSError{Err: "unknown port", Name: network + "/" + service, IsNotFound: true}
+		err := winError("getaddrinfow", e)
+		dnsError := &DNSError{Err: err.Error(), Name: network + "/" + service}
+		if err == errNoSuchHost {
+			dnsError.IsNotFound = true
 		}
-		err := os.NewSyscallError("getaddrinfow", e)
-		return 0, &DNSError{Err: err.Error(), Name: network + "/" + service}
+		return 0, dnsError
 	}
 	defer syscall.FreeAddrInfoW(result)
 	if result == nil {
@@ -259,7 +249,7 @@ func (r *Resolver) lookupPort(ctx context.Context, network, service string) (int
 }
 
 func (r *Resolver) lookupCNAME(ctx context.Context, name string) (string, error) {
-	if order, conf := systemConf().hostLookupOrder(r, name); order != hostLookupCgo {
+	if order, conf := systemConf().hostLookupOrder(r, ""); order != hostLookupCgo {
 		return r.goLookupCNAME(ctx, name, order, conf)
 	}
 
@@ -274,8 +264,7 @@ func (r *Resolver) lookupCNAME(ctx context.Context, name string) (string, error)
 		return absDomainName(name), nil
 	}
 	if e != nil {
-		err := winError("dnsquery", e)
-		return "", &DNSError{Err: err.Error(), Name: name, IsNotFound: err == errNoSuchHost}
+		return "", &DNSError{Err: winError("dnsquery", e).Error(), Name: name}
 	}
 	defer syscall.DnsRecordListFree(rec, 1)
 
@@ -285,7 +274,7 @@ func (r *Resolver) lookupCNAME(ctx context.Context, name string) (string, error)
 }
 
 func (r *Resolver) lookupSRV(ctx context.Context, service, proto, name string) (string, []*SRV, error) {
-	if systemConf().mustUseGoResolver(r) {
+	if r.preferGoOverWindows() {
 		return r.goLookupSRV(ctx, service, proto, name)
 	}
 	// TODO(bradfitz): finish ctx plumbing. Nothing currently depends on this.
@@ -300,8 +289,7 @@ func (r *Resolver) lookupSRV(ctx context.Context, service, proto, name string) (
 	var rec *syscall.DNSRecord
 	e := syscall.DnsQuery(target, syscall.DNS_TYPE_SRV, 0, nil, &rec, nil)
 	if e != nil {
-		err := winError("dnsquery", e)
-		return "", nil, &DNSError{Err: err.Error(), Name: name, IsNotFound: err == errNoSuchHost}
+		return "", nil, &DNSError{Err: winError("dnsquery", e).Error(), Name: target}
 	}
 	defer syscall.DnsRecordListFree(rec, 1)
 
@@ -315,7 +303,7 @@ func (r *Resolver) lookupSRV(ctx context.Context, service, proto, name string) (
 }
 
 func (r *Resolver) lookupMX(ctx context.Context, name string) ([]*MX, error) {
-	if systemConf().mustUseGoResolver(r) {
+	if r.preferGoOverWindows() {
 		return r.goLookupMX(ctx, name)
 	}
 	// TODO(bradfitz): finish ctx plumbing. Nothing currently depends on this.
@@ -324,8 +312,7 @@ func (r *Resolver) lookupMX(ctx context.Context, name string) ([]*MX, error) {
 	var rec *syscall.DNSRecord
 	e := syscall.DnsQuery(name, syscall.DNS_TYPE_MX, 0, nil, &rec, nil)
 	if e != nil {
-		err := winError("dnsquery", e)
-		return nil, &DNSError{Err: err.Error(), Name: name, IsNotFound: err == errNoSuchHost}
+		return nil, &DNSError{Err: winError("dnsquery", e).Error(), Name: name}
 	}
 	defer syscall.DnsRecordListFree(rec, 1)
 
@@ -339,7 +326,7 @@ func (r *Resolver) lookupMX(ctx context.Context, name string) ([]*MX, error) {
 }
 
 func (r *Resolver) lookupNS(ctx context.Context, name string) ([]*NS, error) {
-	if systemConf().mustUseGoResolver(r) {
+	if r.preferGoOverWindows() {
 		return r.goLookupNS(ctx, name)
 	}
 	// TODO(bradfitz): finish ctx plumbing. Nothing currently depends on this.
@@ -348,8 +335,7 @@ func (r *Resolver) lookupNS(ctx context.Context, name string) ([]*NS, error) {
 	var rec *syscall.DNSRecord
 	e := syscall.DnsQuery(name, syscall.DNS_TYPE_NS, 0, nil, &rec, nil)
 	if e != nil {
-		err := winError("dnsquery", e)
-		return nil, &DNSError{Err: err.Error(), Name: name, IsNotFound: err == errNoSuchHost}
+		return nil, &DNSError{Err: winError("dnsquery", e).Error(), Name: name}
 	}
 	defer syscall.DnsRecordListFree(rec, 1)
 
@@ -362,7 +348,7 @@ func (r *Resolver) lookupNS(ctx context.Context, name string) ([]*NS, error) {
 }
 
 func (r *Resolver) lookupTXT(ctx context.Context, name string) ([]string, error) {
-	if systemConf().mustUseGoResolver(r) {
+	if r.preferGoOverWindows() {
 		return r.goLookupTXT(ctx, name)
 	}
 	// TODO(bradfitz): finish ctx plumbing. Nothing currently depends on this.
@@ -371,8 +357,7 @@ func (r *Resolver) lookupTXT(ctx context.Context, name string) ([]string, error)
 	var rec *syscall.DNSRecord
 	e := syscall.DnsQuery(name, syscall.DNS_TYPE_TEXT, 0, nil, &rec, nil)
 	if e != nil {
-		err := winError("dnsquery", e)
-		return nil, &DNSError{Err: err.Error(), Name: name, IsNotFound: err == errNoSuchHost}
+		return nil, &DNSError{Err: winError("dnsquery", e).Error(), Name: name}
 	}
 	defer syscall.DnsRecordListFree(rec, 1)
 
@@ -389,7 +374,7 @@ func (r *Resolver) lookupTXT(ctx context.Context, name string) ([]string, error)
 }
 
 func (r *Resolver) lookupAddr(ctx context.Context, addr string) ([]string, error) {
-	if order, conf := systemConf().addrLookupOrder(r, addr); order != hostLookupCgo {
+	if order, conf := systemConf().hostLookupOrder(r, ""); order != hostLookupCgo {
 		return r.goLookupPTR(ctx, addr, order, conf)
 	}
 
@@ -403,8 +388,7 @@ func (r *Resolver) lookupAddr(ctx context.Context, addr string) ([]string, error
 	var rec *syscall.DNSRecord
 	e := syscall.DnsQuery(arpa, syscall.DNS_TYPE_PTR, 0, nil, &rec, nil)
 	if e != nil {
-		err := winError("dnsquery", e)
-		return nil, &DNSError{Err: err.Error(), Name: addr, IsNotFound: err == errNoSuchHost}
+		return nil, &DNSError{Err: winError("dnsquery", e).Error(), Name: addr}
 	}
 	defer syscall.DnsRecordListFree(rec, 1)
 

@@ -4,6 +4,6 @@
 
 package net
 
-var (
-	hostsFilePath = "/etc/hosts"
-)
+import "time"
+
+var testHookDialChannel = func() { time.Sleep(time.Millisecond) } // see golang.org/issue/5349

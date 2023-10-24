@@ -171,7 +171,9 @@ func mapKeys() (keys []string) {
 func clearMap() {
 	mu.Lock()
 	defer mu.Unlock()
-	clear(valMap)
+	for k := range valMap {
+		delete(valMap, k)
+	}
 }
 
 var (

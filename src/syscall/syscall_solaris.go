@@ -131,8 +131,7 @@ func (sa *SockaddrUnix) sockaddr() (unsafe.Pointer, _Socklen, error) {
 	if n > 0 {
 		sl += _Socklen(n) + 1
 	}
-	if sa.raw.Path[0] == '@' || (sa.raw.Path[0] == 0 && sl > 3) {
-		// Check sl > 3 so we don't change unnamed socket behavior.
+	if sa.raw.Path[0] == '@' {
 		sa.raw.Path[0] = 0
 		// Don't count trailing NUL for abstract address.
 		sl--
@@ -521,6 +520,15 @@ func Getexecname() (path string, err error) {
 
 func readlen(fd int, buf *byte, nbuf int) (n int, err error) {
 	r0, _, e1 := sysvicall6(uintptr(unsafe.Pointer(&libc_read)), 3, uintptr(fd), uintptr(unsafe.Pointer(buf)), uintptr(nbuf), 0, 0, 0)
+	n = int(r0)
+	if e1 != 0 {
+		err = e1
+	}
+	return
+}
+
+func writelen(fd int, buf *byte, nbuf int) (n int, err error) {
+	r0, _, e1 := sysvicall6(uintptr(unsafe.Pointer(&libc_write)), 3, uintptr(fd), uintptr(unsafe.Pointer(buf)), uintptr(nbuf), 0, 0, 0)
 	n = int(r0)
 	if e1 != 0 {
 		err = e1

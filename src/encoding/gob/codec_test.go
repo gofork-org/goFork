@@ -14,7 +14,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unsafe"
 )
 
 var doFuzzTests = flag.Bool("gob.fuzz", false, "run the fuzz tests, which are large and very slow")
@@ -1567,9 +1566,7 @@ func testEncodeDecode(t *testing.T, in, out any) {
 
 func TestLargeSlice(t *testing.T) {
 	t.Run("byte", func(t *testing.T) {
-		if unsafe.Sizeof(uintptr(0)) > 4 {
-			t.Parallel() // Only run in parallel in a large address space
-		}
+		t.Parallel()
 		s := make([]byte, 10<<21)
 		for i := range s {
 			s[i] = byte(i)
@@ -1579,9 +1576,7 @@ func TestLargeSlice(t *testing.T) {
 		testEncodeDecode(t, st, rt)
 	})
 	t.Run("int8", func(t *testing.T) {
-		if unsafe.Sizeof(uintptr(0)) > 4 {
-			t.Parallel()
-		}
+		t.Parallel()
 		s := make([]int8, 10<<21)
 		for i := range s {
 			s[i] = int8(i)
@@ -1591,9 +1586,7 @@ func TestLargeSlice(t *testing.T) {
 		testEncodeDecode(t, st, rt)
 	})
 	t.Run("struct", func(t *testing.T) {
-		if unsafe.Sizeof(uintptr(0)) > 4 {
-			t.Parallel()
-		}
+		t.Parallel()
 		s := make([]StringPair, 1<<21)
 		for i := range s {
 			s[i].A = string(rune(i))
@@ -1604,9 +1597,7 @@ func TestLargeSlice(t *testing.T) {
 		testEncodeDecode(t, st, rt)
 	})
 	t.Run("string", func(t *testing.T) {
-		if unsafe.Sizeof(uintptr(0)) > 4 {
-			t.Parallel()
-		}
+		t.Parallel()
 		s := make([]string, 1<<21)
 		for i := range s {
 			s[i] = string(rune(i))

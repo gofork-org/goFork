@@ -151,9 +151,3 @@ func ptrBothOffset() {
 	// s390x:-"BEQ",-"BNE"
 	copy(x[1:], x[2:])
 }
-
-// Verify #62698 on PPC64.
-func noMaskOnCopy(a []int, s string, x int) int {
-	// ppc64x:-"MOVD\t$-1", -"AND"
-	return a[x&^copy([]byte{}, s)]
-}

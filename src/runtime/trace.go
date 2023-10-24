@@ -944,7 +944,7 @@ func traceReadCPU() {
 			}
 			stackID := trace.stackTab.put(buf.stk[:nstk])
 
-			traceEventLocked(0, nil, 0, bufp, traceEvCPUSample, stackID, 1, timestamp, ppid, goid)
+			traceEventLocked(0, nil, 0, bufp, traceEvCPUSample, stackID, 1, uint64(timestamp), ppid, goid)
 		}
 	}
 }
@@ -1349,6 +1349,7 @@ func fpunwindExpand(pcBuf []uintptr) []uintptr {
 	}
 
 	var (
+		cache      pcvalueCache
 		lastFuncID = abi.FuncIDNormal
 		newPCBuf   = make([]uintptr, 0, traceStackSize)
 		skip       = pcBuf[0]
@@ -1377,7 +1378,7 @@ outer:
 			continue
 		}
 
-		u, uf := newInlineUnwinder(fi, callPC)
+		u, uf := newInlineUnwinder(fi, callPC, &cache)
 		for ; uf.valid(); uf = u.next(uf) {
 			sf := u.srcFunc(uf)
 			if sf.funcID == abi.FuncIDWrapper && elideWrapperCalling(lastFuncID) {

@@ -63,7 +63,6 @@ var bootstrapDirs = []string{
 	"go/constant",
 	"internal/abi",
 	"internal/coverage",
-	"cmd/internal/cov/covcmd",
 	"internal/bisect",
 	"internal/buildcfg",
 	"internal/goarch",
@@ -86,8 +85,10 @@ var bootstrapDirs = []string{
 	"internal/unsafeheader",
 	"internal/xcoff",
 	"internal/zstd",
+	"math/big",
 	"math/bits",
 	"sort",
+	"strconv",
 }
 
 // File prefixes that are ignored by go/build anyway, and cause

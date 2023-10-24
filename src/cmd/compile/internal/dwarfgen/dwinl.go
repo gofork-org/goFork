@@ -124,16 +124,18 @@ func assembleInlines(fnsym *obj.LSym, dwVars []*dwarf.Var) dwarf.InlCalls {
 		// caller.
 		synthCount := len(m)
 		for _, v := range sl {
+			canonName := unversion(v.Name)
 			vp := varPos{
-				DeclName: v.Name,
+				DeclName: canonName,
 				DeclFile: v.DeclFile,
 				DeclLine: v.DeclLine,
 				DeclCol:  v.DeclCol,
 			}
-			synthesized := strings.HasPrefix(v.Name, "~") || v.Name == "_"
+			synthesized := strings.HasPrefix(v.Name, "~r") || canonName == "_" || strings.HasPrefix(v.Name, "~b")
 			if idx, found := m[vp]; found {
 				v.ChildIndex = int32(idx)
 				v.IsInAbstract = !synthesized
+				v.Name = canonName
 			} else {
 				// Variable can't be found in the pre-inline dcl list.
 				// In the top-level case (ii=0) this can happen
@@ -215,7 +217,16 @@ func AbstractFunc(fn *obj.LSym) {
 	if base.Debug.DwarfInl != 0 {
 		base.Ctxt.Logf("DwarfAbstractFunc(%v)\n", fn.Name)
 	}
-	base.Ctxt.DwarfAbstractFunc(ifn, fn)
+	base.Ctxt.DwarfAbstractFunc(ifn, fn, base.Ctxt.Pkgpath)
+}
+
+// Undo any versioning performed when a name was written
+// out as part of export data.
+func unversion(name string) string {
+	if i := strings.Index(name, "·"); i > 0 {
+		name = name[:i]
+	}
+	return name
 }
 
 // Given a function that was inlined as part of the compilation, dig
@@ -230,7 +241,7 @@ func makePreinlineDclMap(fnsym *obj.LSym) map[varPos]int {
 	for i, n := range dcl {
 		pos := base.Ctxt.InnermostPos(n.Pos())
 		vp := varPos{
-			DeclName: n.Sym().Name,
+			DeclName: unversion(n.Sym().Name),
 			DeclFile: pos.RelFilename(),
 			DeclLine: pos.RelLine(),
 			DeclCol:  pos.RelCol(),
@@ -262,11 +273,13 @@ func insertInlCall(dwcalls *dwarf.InlCalls, inlIdx int, imap map[int]int) int {
 	// Create new entry for this inline
 	inlinedFn := base.Ctxt.InlTree.InlinedFunction(inlIdx)
 	callXPos := base.Ctxt.InlTree.CallPos(inlIdx)
-	callPos := base.Ctxt.InnermostPos(callXPos)
+	callPos := base.Ctxt.PosTable.Pos(callXPos)
+	callFileSym := base.Ctxt.Lookup(callPos.Base().SymFilename())
 	absFnSym := base.Ctxt.DwFixups.AbsFuncDwarfSym(inlinedFn)
 	ic := dwarf.InlCall{
 		InlIndex:  inlIdx,
-		CallPos:   callPos,
+		CallFile:  callFileSym,
+		CallLine:  uint32(callPos.RelLine()),
 		AbsFunSym: absFnSym,
 		Root:      parCallIdx == -1,
 	}

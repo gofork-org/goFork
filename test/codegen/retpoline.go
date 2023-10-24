@@ -1,6 +1,5 @@
+// +build amd64
 // asmcheck -gcflags=-spectre=ret
-
-//go:build amd64
 
 package codegen
 

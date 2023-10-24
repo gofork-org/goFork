@@ -155,7 +155,7 @@ const (
  * marshal a 32-bit representation from the 64-bit structure.
  */
 
-var elfstrdat, elfshstrdat []byte
+var Elfstrdat []byte
 
 /*
  * Total amount of space to reserve at the start of the file
@@ -208,7 +208,7 @@ type ELFArch struct {
 
 	Reloc1    func(*Link, *OutBuf, *loader.Loader, loader.Sym, loader.ExtReloc, int, int64) bool
 	RelocSize uint32 // size of an ELF relocation record, must match Reloc1.
-	SetupPLT  func(ctxt *Link, ldr *loader.Loader, plt, gotplt *loader.SymbolBuilder, dynamic loader.Sym)
+	SetupPLT  func(ctxt *Link, plt, gotplt *loader.SymbolBuilder, dynamic loader.Sym)
 
 	// DynamicReadOnly can be set to true to make the .dynamic
 	// section read-only. By default it is writable.
@@ -243,7 +243,7 @@ func Elfinit(ctxt *Link) {
 	switch ctxt.Arch.Family {
 	// 64-bit architectures
 	case sys.PPC64, sys.S390X:
-		if ctxt.Arch.ByteOrder == binary.BigEndian && ctxt.HeadType != objabi.Hopenbsd {
+		if ctxt.Arch.ByteOrder == binary.BigEndian {
 			ehdr.Flags = 1 /* Version 1 ABI */
 		} else {
 			ehdr.Flags = 2 /* Version 2 ABI */
@@ -806,18 +806,6 @@ func elfwritefreebsdsig(out *OutBuf) int {
 }
 
 func addbuildinfo(val string) {
-	if val == "gobuildid" {
-		buildID := *flagBuildid
-		if buildID == "" {
-			Exitf("-B gobuildid requires a Go build ID supplied via -buildid")
-		}
-
-		hashedBuildID := notsha256.Sum256([]byte(buildID))
-		buildinfo = hashedBuildID[:20]
-
-		return
-	}
-
 	if !strings.HasPrefix(val, "0x") {
 		Exitf("-B argument must start with 0x: %s", val)
 	}
@@ -1398,16 +1386,12 @@ func (ctxt *Link) doelf() {
 	ldr := ctxt.loader
 
 	/* predefine strings we need for section headers */
+	shstrtab := ldr.CreateSymForUpdate(".shstrtab", 0)
 
-	addshstr := func(s string) int {
-		off := len(elfshstrdat)
-		elfshstrdat = append(elfshstrdat, s...)
-		elfshstrdat = append(elfshstrdat, 0)
-		return off
-	}
+	shstrtab.SetType(sym.SELFROSECT)
 
 	shstrtabAddstring := func(s string) {
-		off := addshstr(s)
+		off := shstrtab.Addstring(s)
 		elfsetstring(ctxt, 0, s, int(off))
 	}
 
@@ -1507,8 +1491,6 @@ func (ctxt *Link) doelf() {
 	if !*FlagS {
 		shstrtabAddstring(".symtab")
 		shstrtabAddstring(".strtab")
-	}
-	if !*FlagW {
 		dwarfaddshstrings(ctxt, shstrtabAddstring)
 	}
 
@@ -1601,7 +1583,7 @@ func (ctxt *Link) doelf() {
 			// S390X uses .got instead of .got.plt
 			gotplt = got
 		}
-		thearch.ELF.SetupPLT(ctxt, ctxt.loader, plt, gotplt, dynamic.Sym())
+		thearch.ELF.SetupPLT(ctxt, plt, gotplt, dynamic.Sym())
 
 		/*
 		 * .dynamic table
@@ -1762,16 +1744,12 @@ func Asmbelfsetup() {
 
 func asmbElf(ctxt *Link) {
 	var symo int64
-	symo = int64(Segdwarf.Fileoff + Segdwarf.Filelen)
-	symo = Rnd(symo, int64(ctxt.Arch.PtrSize))
-	ctxt.Out.SeekSet(symo)
-	if *FlagS {
-		ctxt.Out.Write(elfshstrdat)
-	} else {
+	if !*FlagS {
+		symo = int64(Segdwarf.Fileoff + Segdwarf.Filelen)
+		symo = Rnd(symo, int64(ctxt.Arch.PtrSize))
 		ctxt.Out.SeekSet(symo)
 		asmElfSym(ctxt)
-		ctxt.Out.Write(elfstrdat)
-		ctxt.Out.Write(elfshstrdat)
+		ctxt.Out.Write(Elfstrdat)
 		if ctxt.IsExternal() {
 			elfEmitReloc(ctxt)
 		}
@@ -2175,6 +2153,9 @@ func asmbElf(ctxt *Link) {
 
 elfobj:
 	sh := elfshname(".shstrtab")
+	sh.Type = uint32(elf.SHT_STRTAB)
+	sh.Addralign = 1
+	shsym(sh, ldr, ldr.Lookup(".shstrtab", 0))
 	eh.Shstrndx = uint16(sh.shnum)
 
 	if ctxt.IsMIPS() {
@@ -2201,7 +2182,6 @@ elfobj:
 		elfshname(".symtab")
 		elfshname(".strtab")
 	}
-	elfshname(".shstrtab")
 
 	for _, sect := range Segtext.Sections {
 		elfshbits(ctxt.LinkMode, sect)
@@ -2244,7 +2224,6 @@ elfobj:
 		sh.Flags = 0
 	}
 
-	var shstroff uint64
 	if !*FlagS {
 		sh := elfshname(".symtab")
 		sh.Type = uint32(elf.SHT_SYMTAB)
@@ -2258,18 +2237,9 @@ elfobj:
 		sh = elfshname(".strtab")
 		sh.Type = uint32(elf.SHT_STRTAB)
 		sh.Off = uint64(symo) + uint64(symSize)
-		sh.Size = uint64(len(elfstrdat))
+		sh.Size = uint64(len(Elfstrdat))
 		sh.Addralign = 1
-		shstroff = sh.Off + sh.Size
-	} else {
-		shstroff = uint64(symo)
 	}
-
-	sh = elfshname(".shstrtab")
-	sh.Type = uint32(elf.SHT_STRTAB)
-	sh.Off = shstroff
-	sh.Size = uint64(len(elfshstrdat))
-	sh.Addralign = 1
 
 	/* Main header */
 	copy(eh.Ident[:], elf.ELFMAG)

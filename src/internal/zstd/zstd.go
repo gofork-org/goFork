@@ -59,7 +59,8 @@ type Reader struct {
 	huffmanTableBits int
 
 	// The window for back references.
-	window window
+	windowSize int    // maximum required window size
+	window     []byte // window data
 
 	// A buffer available to hold a compressed block.
 	compressedBuf []byte
@@ -104,13 +105,14 @@ func (r *Reader) Reset(input io.Reader) {
 	r.frameSizeUnknown = false
 	r.remainingFrameSize = 0
 	r.blockOffset = 0
-	r.buffer = r.buffer[:0]
+	// buffer
 	r.off = 0
 	// repeatedOffset1
 	// repeatedOffset2
 	// repeatedOffset3
 	// huffmanTable
 	// huffmanTableBits
+	// windowSize
 	// window
 	// compressedBuf
 	// literals
@@ -169,7 +171,7 @@ retry:
 
 	// Read magic number. RFC 3.1.1.
 	if _, err := io.ReadFull(r.r, r.scratch[:4]); err != nil {
-		// We require that the stream contains at least one frame.
+		// We require that the stream contain at least one frame.
 		if err == io.EOF && !r.readOneFrame {
 			err = io.ErrUnexpectedEOF
 		}
@@ -183,7 +185,6 @@ retry:
 			if err := r.skipFrame(); err != nil {
 				return err
 			}
-			r.readOneFrame = true
 			goto retry
 		}
 
@@ -221,15 +222,13 @@ retry:
 		r.checksum.reset()
 	}
 
-	// Dictionary_ID_Flag. RFC 3.1.1.1.1.6.
-	dictionaryIdSize := 0
-	if dictIdFlag := descriptor & 3; dictIdFlag != 0 {
-		dictionaryIdSize = 1 << (dictIdFlag - 1)
+	if descriptor&3 != 0 {
+		return r.makeError(relativeOffset, "dictionaries are not supported")
 	}
 
 	relativeOffset++
 
-	headerSize := windowDescriptorSize + dictionaryIdSize + fcsFieldSize
+	headerSize := windowDescriptorSize + fcsFieldSize
 
 	if _, err := io.ReadFull(r.r, r.scratch[:headerSize]); err != nil {
 		return r.wrapNonEOFError(relativeOffset, err)
@@ -237,8 +236,11 @@ retry:
 
 	// Figure out the maximum amount of data we need to retain
 	// for backreferences.
-	var windowSize int
-	if !singleSegment {
+
+	if singleSegment {
+		// No window required, as all the data is in a single buffer.
+		r.windowSize = 0
+	} else {
 		// Window descriptor. RFC 3.1.1.1.2.
 		windowDescriptor := r.scratch[0]
 		exponent := uint64(windowDescriptor >> 3)
@@ -246,29 +248,25 @@ retry:
 		windowLog := exponent + 10
 		windowBase := uint64(1) << windowLog
 		windowAdd := (windowBase / 8) * mantissa
-		windowSize = int(windowBase + windowAdd)
+		windowSize := windowBase + windowAdd
 
 		// Default zstd sets limits on the window size.
 		if fuzzing && (windowLog > 31 || windowSize > 1<<27) {
 			return r.makeError(relativeOffset, "windowSize too large")
 		}
-	}
 
-	// Dictionary_ID. RFC 3.1.1.1.3.
-	if dictionaryIdSize != 0 {
-		dictionaryId := r.scratch[windowDescriptorSize : windowDescriptorSize+dictionaryIdSize]
-		// Allow only zero Dictionary ID.
-		for _, b := range dictionaryId {
-			if b != 0 {
-				return r.makeError(relativeOffset, "dictionaries are not supported")
-			}
+		// RFC 8878 permits us to set an 8M max on window size.
+		if windowSize > 8<<20 {
+			windowSize = 8 << 20
 		}
+
+		r.windowSize = int(windowSize)
 	}
 
-	// Frame_Content_Size. RFC 3.1.1.1.4.
+	// Frame_Content_Size. RFC 3.1.1.4.
 	r.frameSizeUnknown = false
 	r.remainingFrameSize = 0
-	fb := r.scratch[windowDescriptorSize+dictionaryIdSize:]
+	fb := r.scratch[windowDescriptorSize:]
 	switch fcsFieldSize {
 	case 0:
 		r.frameSizeUnknown = true
@@ -284,18 +282,6 @@ retry:
 		panic("unreachable")
 	}
 
-	// RFC 3.1.1.1.2.
-	// When Single_Segment_Flag is set, Window_Descriptor is not present.
-	// In this case, Window_Size is Frame_Content_Size.
-	if singleSegment {
-		windowSize = int(r.remainingFrameSize)
-	}
-
-	// RFC 8878 3.1.1.1.1.2. permits us to set an 8M max on window size.
-	if windowSize > 8<<20 {
-		windowSize = 8 << 20
-	}
-
 	relativeOffset += headerSize
 
 	r.sawFrameHeader = true
@@ -307,7 +293,7 @@ retry:
 	r.repeatedOffset2 = 4
 	r.repeatedOffset3 = 8
 	r.huffmanTableBits = 0
-	r.window.reset(windowSize)
+	r.window = r.window[:0]
 	r.seqTables[0] = nil
 	r.seqTables[1] = nil
 	r.seqTables[2] = nil
@@ -382,7 +368,7 @@ func (r *Reader) readBlock() error {
 	// Maximum block size is smaller of window size and 128K.
 	// We don't record the window size for a single segment frame,
 	// so just use 128K. RFC 3.1.1.2.3, 3.1.1.2.4.
-	if blockSize > 128<<10 || (r.window.size > 0 && blockSize > r.window.size) {
+	if blockSize > 128<<10 || (r.windowSize > 0 && blockSize > r.windowSize) {
 		return r.makeError(relativeOffset, "block size too large")
 	}
 
@@ -428,7 +414,7 @@ func (r *Reader) readBlock() error {
 	}
 
 	if !lastBlock {
-		r.window.save(r.buffer)
+		r.saveWindow(r.buffer)
 	} else {
 		if !r.frameSizeUnknown && r.remainingFrameSize != 0 {
 			return r.makeError(relativeOffset, "not enough uncompressed bytes for frame")
@@ -461,6 +447,28 @@ func (r *Reader) setBufferSize(size int) {
 		r.buffer = append(r.buffer[:cap(r.buffer)], make([]byte, need)...)
 	}
 	r.buffer = r.buffer[:size]
+}
+
+// saveWindow saves bytes in the backreference window.
+// TODO: use a circular buffer for less data movement.
+func (r *Reader) saveWindow(buf []byte) {
+	if r.windowSize == 0 {
+		return
+	}
+
+	if len(buf) >= r.windowSize {
+		from := len(buf) - r.windowSize
+		r.window = append(r.window[:0], buf[from:]...)
+		return
+	}
+
+	keep := r.windowSize - len(buf) // must be positive
+	if keep < len(r.window) {
+		remove := len(r.window) - keep
+		copy(r.window[:], r.window[remove:])
+	}
+
+	r.window = append(r.window, buf...)
 }
 
 // zstdError is an error while decompressing.

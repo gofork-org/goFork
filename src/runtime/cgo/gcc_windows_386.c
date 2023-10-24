@@ -12,15 +12,14 @@
 #include "libcgo_windows.h"
 
 static void threadentry(void*);
-static void (*setg_gcc)(void*);
 static DWORD *tls_g;
 
 void
 x_cgo_init(G *g, void (*setg)(void*), void **tlsg, void **tlsbase)
 {
-	setg_gcc = setg;
 	tls_g = (DWORD *)tlsg;
 }
+
 
 void
 _cgo_sys_thread_start(ThreadStart *ts)
@@ -28,7 +27,6 @@ _cgo_sys_thread_start(ThreadStart *ts)
 	_cgo_beginthread(threadentry, ts);
 }
 
-extern void crosscall1(void (*fn)(void), void (*setg_gcc)(void*), void *g);
 static void
 threadentry(void *v)
 {
@@ -49,5 +47,5 @@ threadentry(void *v)
 		:: "r"(ts.tls), "r"(*tls_g), "r"(ts.g) : "%eax"
 	);
 
-	crosscall1(ts.fn, setg_gcc, ts.g);
+	crosscall_386(ts.fn);
 }

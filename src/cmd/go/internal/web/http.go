@@ -173,7 +173,7 @@ func get(security SecurityMode, url *urlpkg.URL) (*Response, error) {
 		}
 	}
 
-	fetch := func(url *urlpkg.URL) (*http.Response, error) {
+	fetch := func(url *urlpkg.URL) (*urlpkg.URL, *http.Response, error) {
 		// Note: The -v build flag does not mean "print logging information",
 		// despite its historical misuse for this in GOPATH-based go get.
 		// We print extra logging in -x mode instead, which traces what
@@ -184,7 +184,7 @@ func get(security SecurityMode, url *urlpkg.URL) (*Response, error) {
 
 		req, err := http.NewRequest("GET", url.String(), nil)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if url.Scheme == "https" {
 			auth.AddCredentials(req)
@@ -197,7 +197,7 @@ func get(security SecurityMode, url *urlpkg.URL) (*Response, error) {
 
 		release, err := base.AcquireNet()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		var res *http.Response
@@ -218,7 +218,7 @@ func get(security SecurityMode, url *urlpkg.URL) (*Response, error) {
 			// CheckRedirect fails, and even then the returned Response.Body is
 			// already closed.”
 			release()
-			return nil, err
+			return nil, nil, err
 		}
 
 		// “If the returned error is nil, the Response will contain a non-nil Body
@@ -228,7 +228,7 @@ func get(security SecurityMode, url *urlpkg.URL) (*Response, error) {
 			ReadCloser: body,
 			afterClose: release,
 		}
-		return res, err
+		return url, res, err
 	}
 
 	var (
@@ -241,10 +241,8 @@ func get(security SecurityMode, url *urlpkg.URL) (*Response, error) {
 		*secure = *url
 		secure.Scheme = "https"
 
-		res, err = fetch(secure)
-		if err == nil {
-			fetched = secure
-		} else {
+		fetched, res, err = fetch(secure)
+		if err != nil {
 			if cfg.BuildX {
 				fmt.Fprintf(os.Stderr, "# get %s: %v\n", secure.Redacted(), err)
 			}
@@ -286,10 +284,8 @@ func get(security SecurityMode, url *urlpkg.URL) (*Response, error) {
 			return nil, fmt.Errorf("refusing to pass credentials to insecure URL: %s", insecure.Redacted())
 		}
 
-		res, err = fetch(insecure)
-		if err == nil {
-			fetched = insecure
-		} else {
+		fetched, res, err = fetch(insecure)
+		if err != nil {
 			if cfg.BuildX {
 				fmt.Fprintf(os.Stderr, "# get %s: %v\n", insecure.Redacted(), err)
 			}

@@ -6,6 +6,7 @@ package noder
 
 import (
 	"fmt"
+	"internal/goversion"
 	"internal/pkgbits"
 	"io"
 	"runtime"
@@ -15,7 +16,6 @@ import (
 	"cmd/compile/internal/base"
 	"cmd/compile/internal/inline"
 	"cmd/compile/internal/ir"
-	"cmd/compile/internal/pgo"
 	"cmd/compile/internal/typecheck"
 	"cmd/compile/internal/types"
 	"cmd/compile/internal/types2"
@@ -26,65 +26,6 @@ import (
 // package. It exists so the unified IR linker can refer back to it
 // later.
 var localPkgReader *pkgReader
-
-// LookupMethodFunc returns the ir.Func for an arbitrary full symbol name if
-// that function exists in the set of available export data.
-//
-// This allows lookup of arbitrary methods that aren't otherwise referenced by
-// the local package and thus haven't been read yet.
-//
-// TODO(prattmic): Does not handle instantiation of generic types. Currently
-// profiles don't contain the original type arguments, so we won't be able to
-// create the runtime dictionaries.
-//
-// TODO(prattmic): Hit rate of this function is usually fairly low, and errors
-// are only used when debug logging is enabled. Consider constructing cheaper
-// errors by default.
-func LookupMethodFunc(fullName string) (*ir.Func, error) {
-	pkgPath, symName, err := ir.ParseLinkFuncName(fullName)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing symbol name %q: %v", fullName, err)
-	}
-
-	pkg, ok := types.PkgMap()[pkgPath]
-	if !ok {
-		return nil, fmt.Errorf("pkg %s doesn't exist in %v", pkgPath, types.PkgMap())
-	}
-
-	// N.B. readPackage creates a Sym for every object in the package to
-	// initialize objReader and importBodyReader, even if the object isn't
-	// read.
-	//
-	// However, objReader is only initialized for top-level objects, so we
-	// must first lookup the type and use that to find the method rather
-	// than looking for the method directly.
-	typ, meth, err := ir.LookupMethodSelector(pkg, symName)
-	if err != nil {
-		return nil, fmt.Errorf("error looking up method symbol %q: %v", symName, err)
-	}
-
-	pri, ok := objReader[typ]
-	if !ok {
-		return nil, fmt.Errorf("type sym %v missing objReader", typ)
-	}
-
-	name := pri.pr.objIdx(pri.idx, nil, nil, false).(*ir.Name)
-	if name.Op() != ir.OTYPE {
-		return nil, fmt.Errorf("type sym %v refers to non-type name: %v", typ, name)
-	}
-	if name.Alias() {
-		return nil, fmt.Errorf("type sym %v refers to alias", typ)
-	}
-
-	for _, m := range name.Type().Methods() {
-		if m.Sym == meth {
-			fn := m.Nname.(*ir.Name).Func
-			return fn, nil
-		}
-	}
-
-	return nil, fmt.Errorf("method %s missing from method set of %v", symName, typ)
-}
 
 // unified constructs the local package's Internal Representation (IR)
 // from its syntax tree (AST).
@@ -130,11 +71,19 @@ func LookupMethodFunc(fullName string) (*ir.Func, error) {
 func unified(m posMap, noders []*noder) {
 	inline.InlineCall = unifiedInlineCall
 	typecheck.HaveInlineBody = unifiedHaveInlineBody
-	pgo.LookupMethodFunc = LookupMethodFunc
 
 	data := writePkgStub(m, noders)
 
+	// We already passed base.Flag.Lang to types2 to handle validating
+	// the user's source code. Bump it up now to the current version and
+	// re-parse, so typecheck doesn't complain if we construct IR that
+	// utilizes newer Go features.
+	base.Flag.Lang = fmt.Sprintf("go1.%d", goversion.Version)
+	types.ParseLangFlag()
+
 	target := typecheck.Target
+
+	typecheck.TypecheckAllowed = true
 
 	localPkgReader = newPkgReader(pkgbits.NewPkgDecoder(types.LocalPkg.Path, data))
 	readPackage(localPkgReader, types.LocalPkg, true)
@@ -142,28 +91,30 @@ func unified(m posMap, noders []*noder) {
 	r := localPkgReader.newReader(pkgbits.RelocMeta, pkgbits.PrivateRootIdx, pkgbits.SyncPrivate)
 	r.pkgInit(types.LocalPkg, target)
 
+	// Type-check any top-level assignments. We ignore non-assignments
+	// here because other declarations are typechecked as they're
+	// constructed.
+	for i, ndecls := 0, len(target.Decls); i < ndecls; i++ {
+		switch n := target.Decls[i]; n.Op() {
+		case ir.OAS, ir.OAS2:
+			target.Decls[i] = typecheck.Stmt(n)
+		}
+	}
+
 	readBodies(target, false)
 
 	// Check that nothing snuck past typechecking.
-	for _, fn := range target.Funcs {
-		if fn.Typecheck() == 0 {
-			base.FatalfAt(fn.Pos(), "missed typecheck: %v", fn)
+	for _, n := range target.Decls {
+		if n.Typecheck() == 0 {
+			base.FatalfAt(n.Pos(), "missed typecheck: %v", n)
 		}
 
 		// For functions, check that at least their first statement (if
 		// any) was typechecked too.
-		if len(fn.Body) != 0 {
+		if fn, ok := n.(*ir.Func); ok && len(fn.Body) != 0 {
 			if stmt := fn.Body[0]; stmt.Typecheck() == 0 {
 				base.FatalfAt(stmt.Pos(), "missed typecheck: %v", stmt)
 			}
-		}
-	}
-
-	// For functions originally came from package runtime,
-	// mark as norace to prevent instrumenting, see issue #60439.
-	for _, fn := range target.Funcs {
-		if !base.Flag.CompilingRuntime && types.RuntimeSymName(fn.Sym()) != "" {
-			fn.Pragma |= ir.Norace
 		}
 	}
 
@@ -177,7 +128,7 @@ func unified(m posMap, noders []*noder) {
 // necessary on instantiations of imported generic functions, so their
 // inlining costs can be computed.
 func readBodies(target *ir.Package, duringInlining bool) {
-	var inlDecls []*ir.Func
+	var inlDecls []ir.Node
 
 	// Don't use range--bodyIdx can add closures to todoBodies.
 	for {
@@ -214,7 +165,7 @@ func readBodies(target *ir.Package, duringInlining bool) {
 				if duringInlining && canSkipNonGenericMethod {
 					inlDecls = append(inlDecls, fn)
 				} else {
-					target.Funcs = append(target.Funcs, fn)
+					target.Decls = append(target.Decls, fn)
 				}
 			}
 
@@ -247,7 +198,7 @@ func readBodies(target *ir.Package, duringInlining bool) {
 		base.Flag.LowerM = oldLowerM
 
 		for _, fn := range inlDecls {
-			fn.Body = nil // free memory
+			fn.(*ir.Func).Body = nil // free memory
 		}
 	}
 }
@@ -370,7 +321,7 @@ func readPackage(pr *pkgReader, importpkg *types.Pkg, localStub bool) {
 
 		if r.Bool() {
 			sym := importpkg.Lookup(".inittask")
-			task := ir.NewNameAt(src.NoXPos, sym, nil)
+			task := ir.NewNameAt(src.NoXPos, sym)
 			task.Class = ir.PEXTERN
 			sym.Def = task
 		}

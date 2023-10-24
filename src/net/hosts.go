@@ -51,7 +51,7 @@ var hosts struct {
 
 func readHosts() {
 	now := time.Now()
-	hp := hostsFilePath
+	hp := testHookHostsPath
 
 	if now.Before(hosts.expire) && hosts.path == hp && len(hosts.byName) > 0 {
 		return

@@ -8,7 +8,6 @@ package runtime_test
 
 import (
 	"bytes"
-	"fmt"
 	"internal/testenv"
 	"io"
 	"os"
@@ -103,18 +102,6 @@ func TestGdbCoreSignalBacktrace(t *testing.T) {
 		t.Skipf("Unexpected core pattern %q", string(b))
 	}
 
-	coreUsesPID := false
-	b, err = os.ReadFile("/proc/sys/kernel/core_uses_pid")
-	if err == nil {
-		switch string(bytes.TrimSpace(b)) {
-		case "0":
-		case "1":
-			coreUsesPID = true
-		default:
-			t.Skipf("unexpected core_uses_pid value %q", string(b))
-		}
-	}
-
 	dir := t.TempDir()
 
 	// Build the source code.
@@ -149,8 +136,6 @@ func TestGdbCoreSignalBacktrace(t *testing.T) {
 	}
 	w.Close()
 
-	pid := cmd.Process.Pid
-
 	// Wait for child to be ready.
 	var buf [1]byte
 	if _, err := r.Read(buf[:]); err != io.EOF {
@@ -182,17 +167,12 @@ func TestGdbCoreSignalBacktrace(t *testing.T) {
 		t.Fatalf("CoreDump got %v want true", ws.CoreDump())
 	}
 
-	coreFile := "core"
-	if coreUsesPID {
-		coreFile += fmt.Sprintf(".%d", pid)
-	}
-
 	// Execute gdb commands.
 	args := []string{"-nx", "-batch",
 		"-iex", "add-auto-load-safe-path " + filepath.Join(testenv.GOROOT(t), "src", "runtime"),
 		"-ex", "backtrace",
 		filepath.Join(dir, "a.exe"),
-		filepath.Join(dir, coreFile),
+		filepath.Join(dir, "core"),
 	}
 	cmd = testenv.Command(t, "gdb", args...)
 

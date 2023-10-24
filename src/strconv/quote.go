@@ -66,6 +66,7 @@ func appendQuotedRuneWith(buf []byte, r rune, quote byte, ASCIIonly, graphicOnly
 }
 
 func appendEscapedRune(buf []byte, r rune, quote byte, ASCIIonly, graphicOnly bool) []byte {
+	var runeTmp [utf8.UTFMax]byte
 	if r == rune(quote) || r == '\\' { // always backslashed
 		buf = append(buf, '\\')
 		buf = append(buf, byte(r))
@@ -77,7 +78,9 @@ func appendEscapedRune(buf []byte, r rune, quote byte, ASCIIonly, graphicOnly bo
 			return buf
 		}
 	} else if IsPrint(r) || graphicOnly && isInGraphicList(r) {
-		return utf8.AppendRune(buf, r)
+		n := utf8.EncodeRune(runeTmp[:], r)
+		buf = append(buf, runeTmp[:n]...)
+		return buf
 	}
 	switch r {
 	case '\a':
@@ -468,7 +471,9 @@ func unquote(in string, unescape bool) (out, rem string, err error) {
 				if r < utf8.RuneSelf || !multibyte {
 					buf = append(buf, byte(r))
 				} else {
-					buf = utf8.AppendRune(buf, r)
+					var arr [utf8.UTFMax]byte
+					n := utf8.EncodeRune(arr[:], r)
+					buf = append(buf, arr[:n]...)
 				}
 			}
 

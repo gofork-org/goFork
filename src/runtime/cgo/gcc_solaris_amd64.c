@@ -27,12 +27,6 @@ x_cgo_init(G *g, void (*setg)(void*))
 	// See golang.org/issue/12210.
 	if(ctx.uc_stack.ss_size < 1024*1024)
 		g->stacklo -= 1024*1024 - ctx.uc_stack.ss_size;
-
-	// Sanity check the results now, rather than getting a
-	// morestack on g0 crash.
-	if (g->stacklo >= g->stackhi) {
-		fatalf("bad stack bounds: lo=%p hi=%p", (void*)(g->stacklo), (void*)(g->stackhi));
-	}
 }
 
 void
@@ -65,11 +59,11 @@ _cgo_sys_thread_start(ThreadStart *ts)
 	pthread_sigmask(SIG_SETMASK, &oset, nil);
 
 	if (err != 0) {
-		fatalf("pthread_create failed: %s", strerror(err));
+		fprintf(stderr, "runtime/cgo: pthread_create failed: %s\n", strerror(err));
+		abort();
 	}
 }
 
-extern void crosscall1(void (*fn)(void), void (*setg_gcc)(void*), void *g);
 static void*
 threadentry(void *v)
 {
@@ -78,6 +72,6 @@ threadentry(void *v)
 	ts = *(ThreadStart*)v;
 	free(v);
 
-	crosscall1(ts.fn, setg_gcc, (void*)ts.g);
+	crosscall_amd64(ts.fn, setg_gcc, (void*)ts.g);
 	return nil;
 }

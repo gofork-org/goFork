@@ -108,13 +108,7 @@ func ttiSigpanic1() (res *ttiResult) {
 		recover()
 	}()
 	ttiSigpanic2()
-	// without condition below the inliner might decide to de-prioritize
-	// the callsite above (since it would be on an "always leads to panic"
-	// path).
-	if alwaysTrue {
-		panic("did not panic")
-	}
-	return nil
+	panic("did not panic")
 }
 func ttiSigpanic2() {
 	ttiSigpanic3()
@@ -123,8 +117,6 @@ func ttiSigpanic3() {
 	var p *int
 	*p = 3
 }
-
-var alwaysTrue = true
 
 //go:noinline
 func ttiWrapper1() *ttiResult {

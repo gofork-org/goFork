@@ -1004,12 +1004,12 @@ const (
 	//  }
 	InvalidIterVar
 
-	// InvalidRangeExpr occurs when the type of a range expression is not
-	// a valid type for use with a range loop.
+	// InvalidRangeExpr occurs when the type of a range expression is not array,
+	// slice, string, map, or channel.
 	//
 	// Example:
-	//  func f(f float64) {
-	//  	for j := range f {
+	//  func f(i int) {
+	//  	for j := range i {
 	//  		println(j)
 	//  	}
 	//  }

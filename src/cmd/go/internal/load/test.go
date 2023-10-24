@@ -298,11 +298,7 @@ func TestPackagesAndErrors(ctx context.Context, done func(), opts PackageOpts, p
 	// Also the linker introduces implicit dependencies reported by LinkerDeps.
 	stk.Push("testmain")
 	deps := TestMainDeps // cap==len, so safe for append
-	ldDeps, err := LinkerDeps(p)
-	if err != nil && pmain.Error == nil {
-		pmain.Error = &PackageError{Err: err}
-	}
-	for _, d := range ldDeps {
+	for _, d := range LinkerDeps(p) {
 		deps = append(deps, d)
 	}
 	for _, dep := range deps {
@@ -388,15 +384,15 @@ func TestPackagesAndErrors(ctx context.Context, done func(), opts PackageOpts, p
 				// it contains p's Go files), whereas pmain contains only
 				// test harness code (don't want to instrument it, and
 				// we don't want coverage hooks in the pkg init).
-				ptest.Internal.Cover.Mode = p.Internal.Cover.Mode
-				pmain.Internal.Cover.Mode = "testmain"
+				ptest.Internal.CoverMode = p.Internal.CoverMode
+				pmain.Internal.CoverMode = "testmain"
 			}
 			// Should we apply coverage analysis locally, only for this
 			// package and only for this test? Yes, if -cover is on but
 			// -coverpkg has not specified a list of packages for global
 			// coverage.
 			if cover.Local {
-				ptest.Internal.Cover.Mode = cover.Mode
+				ptest.Internal.CoverMode = cover.Mode
 
 				if !cfg.Experiment.CoverageRedesign {
 					var coverFiles []string

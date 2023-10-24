@@ -15,18 +15,14 @@ type Package struct {
 	// Init functions, listed in source order.
 	Inits []*Func
 
-	// Funcs contains all (instantiated) functions, methods, and
-	// function literals to be compiled.
-	Funcs []*Func
+	// Top-level declarations.
+	Decls []Node
 
-	// Externs holds constants, (non-generic) types, and variables
-	// declared at package scope.
-	Externs []*Name
+	// Extern (package global) declarations.
+	Externs []Node
 
-	// AsmHdrDecls holds declared constants and struct types that should
-	// be included in -asmhdr output. It's only populated when -asmhdr
-	// is set.
-	AsmHdrDecls []*Name
+	// Assembly function declarations.
+	Asms []*Name
 
 	// Cgo directives.
 	CgoPragmas [][]string
@@ -34,9 +30,6 @@ type Package struct {
 	// Variables with //go:embed lines.
 	Embeds []*Name
 
-	// PluginExports holds exported functions and variables that are
-	// accessible through the package plugin API. It's only populated
-	// for -buildmode=plugin (i.e., compiling package main and -dynlink
-	// is set).
-	PluginExports []*Name
+	// Exported (or re-exported) symbols.
+	Exports []*Name
 }

@@ -1,6 +1,7 @@
 // asmcheck
 
 //go:build !goexperiment.cgocheck2
+// +build !goexperiment.cgocheck2
 
 // Copyright 2018 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style

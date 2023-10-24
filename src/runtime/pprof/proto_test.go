@@ -101,11 +101,16 @@ func testPCs(t *testing.T) (addr1, addr2 uint64, map1, map2 *profile.Mapping) {
 		addr2 = mprof.Mapping[1].Start
 		map2 = mprof.Mapping[1]
 		map2.BuildID, _ = elfBuildID(map2.File)
-	case "windows", "darwin", "ios":
+	case "windows":
 		addr1 = uint64(abi.FuncPCABIInternal(f1))
 		addr2 = uint64(abi.FuncPCABIInternal(f2))
 
-		start, end, exe, buildID, err := readMainModuleMapping()
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		start, end, err := readMainModuleMapping()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,7 +120,7 @@ func testPCs(t *testing.T) (addr1, addr2 uint64, map1, map2 *profile.Mapping) {
 			Start:        start,
 			Limit:        end,
 			File:         exe,
-			BuildID:      buildID,
+			BuildID:      peBuildID(exe),
 			HasFunctions: true,
 		}
 		map2 = &profile.Mapping{
@@ -123,7 +128,7 @@ func testPCs(t *testing.T) (addr1, addr2 uint64, map1, map2 *profile.Mapping) {
 			Start:        start,
 			Limit:        end,
 			File:         exe,
-			BuildID:      buildID,
+			BuildID:      peBuildID(exe),
 			HasFunctions: true,
 		}
 	case "js", "wasip1":

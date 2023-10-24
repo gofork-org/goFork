@@ -6,7 +6,6 @@ package os
 
 import (
 	"errors"
-	"internal/bytealg"
 	"internal/itoa"
 )
 
@@ -63,7 +62,7 @@ func prefixAndSuffix(pattern string) (prefix, suffix string, err error) {
 			return "", "", errPatternHasSeparator
 		}
 	}
-	if pos := bytealg.LastIndexByteString(pattern, '*'); pos != -1 {
+	if pos := lastIndex(pattern, '*'); pos != -1 {
 		prefix, suffix = pattern[:pos], pattern[pos+1:]
 	} else {
 		prefix = pattern
@@ -116,4 +115,14 @@ func joinPath(dir, name string) string {
 		return dir + name
 	}
 	return dir + string(PathSeparator) + name
+}
+
+// lastIndex from the strings package.
+func lastIndex(s string, sep byte) int {
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == sep {
+			return i
+		}
+	}
+	return -1
 }

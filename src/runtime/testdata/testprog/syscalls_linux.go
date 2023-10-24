@@ -7,7 +7,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"internal/testenv"
 	"os"
 	"syscall"
 )
@@ -45,8 +44,11 @@ func getcwd() (string, error) {
 
 func unshareFs() error {
 	err := syscall.Unshare(syscall.CLONE_FS)
-	if testenv.SyscallIsNotSupported(err) {
-		return errNotPermitted
+	if err != nil {
+		errno, ok := err.(syscall.Errno)
+		if ok && errno == syscall.EPERM {
+			return errNotPermitted
+		}
 	}
 	return err
 }

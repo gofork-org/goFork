@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"syscall"
+	"unsafe"
 )
 
 func setIPv4MulticastInterface(fd *netFD, ifi *Interface) error {
@@ -17,7 +18,7 @@ func setIPv4MulticastInterface(fd *netFD, ifi *Interface) error {
 	}
 	var a [4]byte
 	copy(a[:], ip.To4())
-	err = fd.pfd.SetsockoptInet4Addr(syscall.IPPROTO_IP, syscall.IP_MULTICAST_IF, a)
+	err = fd.pfd.Setsockopt(syscall.IPPROTO_IP, syscall.IP_MULTICAST_IF, (*byte)(unsafe.Pointer(&a[0])), 4)
 	runtime.KeepAlive(fd)
 	return wrapSyscallError("setsockopt", err)
 }

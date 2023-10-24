@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"go/build"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -37,16 +38,11 @@ build treats them as a list of source files specifying a single package.
 
 When compiling packages, build ignores files that end in '_test.go'.
 
-When compiling a single main package, build writes the resulting
-executable to an output file named after the last non-major-version
-component of the package import path. The '.exe' suffix is added
-when writing a Windows executable.
-So 'go build example/sam' writes 'sam' or 'sam.exe'.
-'go build example.com/foo/v2' writes 'foo' or 'foo.exe', not 'v2.exe'.
-
-When compiling a package from a list of .go files, the executable
-is named after the first source file.
-'go build ed.go rx.go' writes 'ed' or 'ed.exe'.
+When compiling a single main package, build writes
+the resulting executable to an output file named after
+the first source file ('go build ed.go rx.go' writes 'ed' or 'ed.exe')
+or the source code directory ('go build unix/sam' writes 'sam' or 'sam.exe').
+The '.exe' suffix is added when writing a Windows executable.
 
 When compiling multiple packages or a single non-main package,
 build compiles the packages but discards the resulting object,
@@ -80,15 +76,14 @@ and test commands:
 		linux/ppc64le and linux/arm64 (only for 48-bit VMA).
 	-msan
 		enable interoperation with memory sanitizer.
-		Supported only on linux/amd64, linux/arm64, linux/loong64, freebsd/amd64
+		Supported only on linux/amd64, linux/arm64, freebsd/amd64
 		and only with Clang/LLVM as the host C compiler.
 		PIE build mode will be used on all platforms except linux/amd64.
 	-asan
 		enable interoperation with address sanitizer.
-		Supported only on linux/arm64, linux/amd64, linux/loong64.
-		Supported on linux/amd64 or linux/arm64 and only with GCC 7 and higher
+		Supported only on linux/arm64, linux/amd64.
+		Supported only on linux/amd64 or linux/arm64 and only with GCC 7 and higher
 		or Clang/LLVM 9 and higher.
-		And supported on linux/loong64 only with Clang/LLVM 16 and higher.
 	-cover
 		enable code coverage instrumentation.
 	-covermode set,count,atomic
@@ -903,7 +898,7 @@ func FindExecCmd() []string {
 	if cfg.Goos == runtime.GOOS && cfg.Goarch == runtime.GOARCH {
 		return ExecCmd
 	}
-	path, err := cfg.LookPath(fmt.Sprintf("go_%s_%s_exec", cfg.Goos, cfg.Goarch))
+	path, err := exec.LookPath(fmt.Sprintf("go_%s_%s_exec", cfg.Goos, cfg.Goarch))
 	if err == nil {
 		ExecCmd = []string{path}
 	}

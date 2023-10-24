@@ -7,10 +7,9 @@ package syscall
 import "unsafe"
 
 const (
-	_SYS_setgroups         = SYS_SETGROUPS32
-	_SYS_clone3            = 435
-	_SYS_faccessat2        = 439
-	_SYS_pidfd_send_signal = 424
+	_SYS_setgroups  = SYS_SETGROUPS32
+	_SYS_clone3     = 435
+	_SYS_faccessat2 = 439
 )
 
 func setTimespec(sec, nsec int64) Timespec {

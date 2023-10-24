@@ -16,7 +16,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"testing"
 
 	. "go/types"
@@ -2324,60 +2323,6 @@ func TestInstantiate(t *testing.T) {
 	}
 }
 
-func TestInstantiateConcurrent(t *testing.T) {
-	const src = `package p
-
-type I[P any] interface {
-	m(P)
-	n() P
-}
-
-type J = I[int]
-
-type Nested[P any] *interface{b(P)}
-
-type K = Nested[string]
-`
-	pkg := mustTypecheck(src, nil, nil)
-
-	insts := []*Interface{
-		pkg.Scope().Lookup("J").Type().Underlying().(*Interface),
-		pkg.Scope().Lookup("K").Type().Underlying().(*Pointer).Elem().(*Interface),
-	}
-
-	// Use the interface instances concurrently.
-	for _, inst := range insts {
-		var (
-			counts  [2]int      // method counts
-			methods [2][]string // method strings
-		)
-		var wg sync.WaitGroup
-		for i := 0; i < 2; i++ {
-			i := i
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-
-				counts[i] = inst.NumMethods()
-				for mi := 0; mi < counts[i]; mi++ {
-					methods[i] = append(methods[i], inst.Method(mi).String())
-				}
-			}()
-		}
-		wg.Wait()
-
-		if counts[0] != counts[1] {
-			t.Errorf("mismatching method counts for %s: %d vs %d", inst, counts[0], counts[1])
-			continue
-		}
-		for i := 0; i < counts[0]; i++ {
-			if m0, m1 := methods[0][i], methods[1][i]; m0 != m1 {
-				t.Errorf("mismatching methods for %s: %s vs %s", inst, m0, m1)
-			}
-		}
-	}
-}
-
 func TestInstantiateErrors(t *testing.T) {
 	tests := []struct {
 		src    string // by convention, T must be the type being instantiated
@@ -2772,49 +2717,4 @@ var _ = f(1, 2)
 	if err == nil || !strings.Contains(err.Error(), " [go.dev/e/WrongArgCount]\n") {
 		t.Errorf("src1: unexpected error: got %v", err)
 	}
-}
-
-func TestFileVersions(t *testing.T) {
-	for _, test := range []struct {
-		moduleVersion string
-		fileVersion   string
-		wantVersion   string
-	}{
-		{"", "", ""},                   // no versions specified
-		{"go1.19", "", "go1.19"},       // module version specified
-		{"", "go1.20", ""},             // file upgrade ignored
-		{"go1.19", "go1.20", "go1.20"}, // file upgrade permitted
-		{"go1.20", "go1.19", "go1.20"}, // file downgrade not permitted
-		{"go1.21", "go1.19", "go1.19"}, // file downgrade permitted (module version is >= go1.21)
-	} {
-		var src string
-		if test.fileVersion != "" {
-			src = "//go:build " + test.fileVersion + "\n"
-		}
-		src += "package p"
-
-		conf := Config{GoVersion: test.moduleVersion}
-		versions := make(map[*ast.File]string)
-		var info Info
-		*_FileVersionsAddr(&info) = versions
-		mustTypecheck(src, &conf, &info)
-
-		n := 0
-		for _, v := range versions {
-			want := test.wantVersion
-			if v != want {
-				t.Errorf("%q: unexpected file version: got %q, want %q", src, v, want)
-			}
-			n++
-		}
-		if n != 1 {
-			t.Errorf("%q: incorrect number of map entries: got %d", src, n)
-		}
-	}
-}
-
-// _FileVersionsAddr(conf) returns the address of the field info._FileVersions.
-func _FileVersionsAddr(info *Info) *map[*ast.File]string {
-	v := reflect.Indirect(reflect.ValueOf(info))
-	return (*map[*ast.File]string)(v.FieldByName("_FileVersions").Addr().UnsafePointer())
 }

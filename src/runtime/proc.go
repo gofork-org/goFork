@@ -84,7 +84,7 @@ var modinfo string
 // semi-persistent CPU underutilization.
 //
 // The general pattern for submission is:
-// 1. Submit work to the local or global run queue, timer heap, or GC state.
+// 1. Submit work to the local run queue, timer heap, or GC state.
 // 2. #StoreLoad-style memory barrier.
 // 3. Check sched.nmspinning.
 //
@@ -244,10 +244,8 @@ func main() {
 	// list can arrive a few different ways, but it will always
 	// contain the init tasks computed by the linker for all the
 	// packages in the program (excluding those added at runtime
-	// by package plugin). Run through the modules in dependency
-	// order (the order they are initialized by the dynamic
-	// loader, i.e. they are added to the moduledata linked list).
-	for m := &firstmoduledata; m != nil; m = m.next {
+	// by package plugin).
+	for _, m := range activeModules() {
 		doInit(m.inittasks)
 	}
 
@@ -743,7 +741,6 @@ func schedinit() {
 	goargs()
 	goenvs()
 	secure()
-	checkfds()
 	parsedebugvars()
 	gcinit()
 
@@ -1438,9 +1435,8 @@ func startTheWorldWithSema() int64 {
 
 	mp := acquirem() // disable preemption because it can be holding p in a local var
 	if netpollinited() {
-		list, delta := netpoll(0) // non-blocking
+		list := netpoll(0) // non-blocking
 		injectglist(&list)
-		netpollAdjustWaiters(delta)
 	}
 	lock(&sched.lock)
 
@@ -1499,7 +1495,7 @@ func usesLibcall() bool {
 	case "aix", "darwin", "illumos", "ios", "solaris", "windows":
 		return true
 	case "openbsd":
-		return GOARCH != "mips64"
+		return GOARCH == "386" || GOARCH == "amd64" || GOARCH == "arm" || GOARCH == "arm64"
 	}
 	return false
 }
@@ -1511,7 +1507,10 @@ func mStackIsSystemAllocated() bool {
 	case "aix", "darwin", "plan9", "illumos", "ios", "solaris", "windows":
 		return true
 	case "openbsd":
-		return GOARCH != "mips64"
+		switch GOARCH {
+		case "386", "amd64", "arm", "arm64":
+			return true
+		}
 	}
 	return false
 }
@@ -2038,10 +2037,30 @@ func needm(signal bool) {
 	osSetupTLS(mp)
 
 	// Install g (= m->g0) and set the stack bounds
-	// to match the current stack.
+	// to match the current stack. If we don't actually know
+	// how big the stack is, like we don't know how big any
+	// scheduling stack is, but we assume there's at least 32 kB.
+	// If we can get a more accurate stack bound from pthread,
+	// use that.
 	setg(mp.g0)
-	sp := getcallersp()
-	callbackUpdateSystemStack(mp, sp, signal)
+	gp := getg()
+	gp.stack.hi = getcallersp() + 1024
+	gp.stack.lo = getcallersp() - 32*1024
+	if !signal && _cgo_getstackbound != nil {
+		// Don't adjust if called from the signal handler.
+		// We are on the signal stack, not the pthread stack.
+		// (We could get the stack bounds from sigaltstack, but
+		// we're getting out of the signal handler very soon
+		// anyway. Not worth it.)
+		var bounds [2]uintptr
+		asmcgocall(_cgo_getstackbound, unsafe.Pointer(&bounds))
+		// getstackbound is an unsupported no-op on Windows.
+		if bounds[0] != 0 {
+			gp.stack.lo = bounds[0]
+			gp.stack.hi = bounds[1]
+		}
+	}
+	gp.stackguard0 = gp.stack.lo + stackGuard
 
 	// Should mark we are already in Go now.
 	// Otherwise, we may call needm again when we get a signal, before cgocallbackg1,
@@ -2158,14 +2177,9 @@ func oneNewExtraM() {
 // So that the destructor would invoke dropm while the non-Go thread is exiting.
 // This is much faster since it avoids expensive signal-related syscalls.
 //
-// This always runs without a P, so //go:nowritebarrierrec is required.
-//
-// This may run with a different stack than was recorded in g0 (there is no
-// call to callbackUpdateSystemStack prior to dropm), so this must be
-// //go:nosplit to avoid the stack bounds check.
+// NOTE: this always runs without a P, so, nowritebarrierrec required.
 //
 //go:nowritebarrierrec
-//go:nosplit
 func dropm() {
 	// Clear m and g, and return m to the extra list.
 	// After the call to setg we can only call nosplit functions
@@ -2960,11 +2974,10 @@ top:
 	// blocked thread (e.g. it has already returned from netpoll, but does
 	// not set lastpoll yet), this thread will do blocking netpoll below
 	// anyway.
-	if netpollinited() && netpollAnyWaiters() && sched.lastpoll.Load() != 0 {
-		if list, delta := netpoll(0); !list.empty() { // non-blocking
+	if netpollinited() && netpollWaiters.Load() > 0 && sched.lastpoll.Load() != 0 {
+		if list := netpoll(0); !list.empty() { // non-blocking
 			gp := list.pop()
 			injectglist(&list)
-			netpollAdjustWaiters(delta)
 			casgstatus(gp, _Gwaiting, _Grunnable)
 			if traceEnabled() {
 				traceGoUnpark(gp, 0)
@@ -3078,7 +3091,7 @@ top:
 	//
 	// This applies to the following sources of work:
 	//
-	// * Goroutines added to the global or a per-P run queue.
+	// * Goroutines added to a per-P run queue.
 	// * New/modified-earlier timers on a per-P timer heap.
 	// * Idle-priority GC work (barring golang.org/issue/19112).
 	//
@@ -3120,24 +3133,7 @@ top:
 		//
 		// See https://go.dev/issue/43997.
 
-		// Check global and P runqueues again.
-
-		lock(&sched.lock)
-		if sched.runqsize != 0 {
-			pp, _ := pidlegetSpinning(0)
-			if pp != nil {
-				gp := globrunqget(pp, 0)
-				if gp == nil {
-					throw("global runq empty with non-zero runqsize")
-				}
-				unlock(&sched.lock)
-				acquirep(pp)
-				mp.becomeSpinning()
-				return gp, false, false
-			}
-		}
-		unlock(&sched.lock)
-
+		// Check all runqueues once again.
 		pp := checkRunqsNoP(allpSnapshot, idlepMaskSnapshot)
 		if pp != nil {
 			acquirep(pp)
@@ -3170,7 +3166,7 @@ top:
 	}
 
 	// Poll network until next timer.
-	if netpollinited() && (netpollAnyWaiters() || pollUntil != 0) && sched.lastpoll.Swap(0) != 0 {
+	if netpollinited() && (netpollWaiters.Load() > 0 || pollUntil != 0) && sched.lastpoll.Swap(0) != 0 {
 		sched.pollUntil.Store(pollUntil)
 		if mp.p != 0 {
 			throw("findrunnable: netpoll with p")
@@ -3192,7 +3188,7 @@ top:
 			// When using fake time, just poll.
 			delay = 0
 		}
-		list, delta := netpoll(delay) // block until new work is available
+		list := netpoll(delay) // block until new work is available
 		// Refresh now again, after potentially blocking.
 		now = nanotime()
 		sched.pollUntil.Store(0)
@@ -3208,13 +3204,11 @@ top:
 		unlock(&sched.lock)
 		if pp == nil {
 			injectglist(&list)
-			netpollAdjustWaiters(delta)
 		} else {
 			acquirep(pp)
 			if !list.empty() {
 				gp := list.pop()
 				injectglist(&list)
-				netpollAdjustWaiters(delta)
 				casgstatus(gp, _Gwaiting, _Grunnable)
 				if traceEnabled() {
 					traceGoUnpark(gp, 0)
@@ -3248,10 +3242,9 @@ func pollWork() bool {
 	if !runqempty(p) {
 		return true
 	}
-	if netpollinited() && netpollAnyWaiters() && sched.lastpoll.Load() != 0 {
-		if list, delta := netpoll(0); !list.empty() {
+	if netpollinited() && netpollWaiters.Load() > 0 && sched.lastpoll.Load() != 0 {
+		if list := netpoll(0); !list.empty() {
 			injectglist(&list)
-			netpollAdjustWaiters(delta)
 			return true
 		}
 	}
@@ -3763,10 +3756,6 @@ func goschedImpl(gp *g) {
 	lock(&sched.lock)
 	globrunqput(gp)
 	unlock(&sched.lock)
-
-	if mainStarted {
-		wakep()
-	}
 
 	schedule()
 }
@@ -4527,14 +4516,12 @@ func newproc1(fn *funcval, callergp *g, callerpc uintptr) *g {
 	totalSize := uintptr(4*goarch.PtrSize + sys.MinFrameSize) // extra space in case of reads slightly beyond frame
 	totalSize = alignUp(totalSize, sys.StackAlign)
 	sp := newg.stack.hi - totalSize
+	spArg := sp
 	if usesLR {
 		// caller's LR
 		*(*uintptr)(unsafe.Pointer(sp)) = 0
 		prepGoExitFrame(sp)
-	}
-	if GOARCH == "arm64" {
-		// caller's FP
-		*(*uintptr)(unsafe.Pointer(sp - goarch.PtrSize)) = 0
+		spArg += sys.MinFrameSize
 	}
 
 	memclrNoHeapPointers(unsafe.Pointer(&newg.sched), unsafe.Sizeof(newg.sched))
@@ -5609,7 +5596,7 @@ func sysmon() {
 		lastpoll := sched.lastpoll.Load()
 		if netpollinited() && lastpoll != 0 && lastpoll+10*1000*1000 < now {
 			sched.lastpoll.CompareAndSwap(lastpoll, now)
-			list, delta := netpoll(0) // non-blocking - returns list of goroutines
+			list := netpoll(0) // non-blocking - returns list of goroutines
 			if !list.empty() {
 				// Need to decrement number of idle locked M's
 				// (pretending that one more is running) before injectglist.
@@ -5621,7 +5608,6 @@ func sysmon() {
 				incidlelocked(-1)
 				injectglist(&list)
 				incidlelocked(1)
-				netpollAdjustWaiters(delta)
 			}
 		}
 		if GOOS == "netbsd" && needSysmonWorkaround {

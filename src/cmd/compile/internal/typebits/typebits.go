@@ -86,7 +86,7 @@ func set(t *types.Type, off int64, bv bitvec.BitVec, skip bool) {
 		}
 
 	case types.TSTRUCT:
-		for _, f := range t.Fields() {
+		for _, f := range t.Fields().Slice() {
 			set(f.Type, off+f.Offset, bv, skip)
 		}
 

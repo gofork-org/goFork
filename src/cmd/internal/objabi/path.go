@@ -4,11 +4,7 @@
 
 package objabi
 
-import (
-	"fmt"
-	"strconv"
-	"strings"
-)
+import "strings"
 
 // PathToPrefix converts raw string to the prefix that will be used in the
 // symbol table. All control characters, space, '%' and '"', as well as
@@ -44,35 +40,28 @@ func PathToPrefix(s string) string {
 	return string(p)
 }
 
-// PrefixToPath is the inverse of PathToPrefix, replacing escape sequences with
-// the original character.
-func PrefixToPath(s string) (string, error) {
-	percent := strings.IndexByte(s, '%')
-	if percent == -1 {
-		return s, nil
+// IsRuntimePackagePath examines 'pkgpath' and returns TRUE if it
+// belongs to the collection of "runtime-related" packages, including
+// "runtime" itself, "reflect", "syscall", and the
+// "runtime/internal/*" packages. The compiler and/or assembler in
+// some cases need to be aware of when they are building such a
+// package, for example to enable features such as ABI selectors in
+// assembly sources.
+//
+// Keep in sync with cmd/dist/build.go:IsRuntimePackagePath.
+func IsRuntimePackagePath(pkgpath string) bool {
+	rval := false
+	switch pkgpath {
+	case "runtime":
+		rval = true
+	case "reflect":
+		rval = true
+	case "syscall":
+		rval = true
+	case "internal/bytealg":
+		rval = true
+	default:
+		rval = strings.HasPrefix(pkgpath, "runtime/internal")
 	}
-
-	p := make([]byte, 0, len(s))
-	for i := 0; i < len(s); {
-		if s[i] != '%' {
-			p = append(p, s[i])
-			i++
-			continue
-		}
-		if i+2 >= len(s) {
-			// Not enough characters remaining to be a valid escape
-			// sequence.
-			return "", fmt.Errorf("malformed prefix %q: escape sequence must contain two hex digits", s)
-		}
-
-		b, err := strconv.ParseUint(s[i+1:i+3], 16, 8)
-		if err != nil {
-			// Not a valid escape sequence.
-			return "", fmt.Errorf("malformed prefix %q: escape sequence %q must contain two hex digits", s, s[i:i+3])
-		}
-
-		p = append(p, byte(b))
-		i += 3
-	}
-	return string(p), nil
+	return rval
 }

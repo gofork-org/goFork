@@ -24,7 +24,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -418,12 +417,13 @@ func (ctxt *context) match(name string) bool {
 		}
 	}
 
-	if slices.Contains(build.Default.ReleaseTags, name) {
-		return true
-	}
-
 	if strings.HasPrefix(name, "goexperiment.") {
-		return slices.Contains(build.Default.ToolTags, name)
+		for _, tag := range build.Default.ToolTags {
+			if tag == name {
+				return true
+			}
+		}
+		return false
 	}
 
 	if name == "cgo" && ctxt.cgoEnabled {
@@ -477,20 +477,16 @@ func (t test) run() error {
 	}
 	src := string(srcBytes)
 
-	// Execution recipe is contained in a comment in
-	// the first non-empty line that is not a build constraint.
-	var action string
-	for actionSrc := src; action == "" && actionSrc != ""; {
-		var line string
-		line, actionSrc, _ = strings.Cut(actionSrc, "\n")
-		if constraint.IsGoBuild(line) || constraint.IsPlusBuild(line) {
-			continue
-		}
-		action = strings.TrimSpace(strings.TrimPrefix(line, "//"))
+	// Execution recipe stops at first blank line.
+	action, _, ok := strings.Cut(src, "\n\n")
+	if !ok {
+		t.Fatalf("double newline ending execution recipe not found in GOROOT/test/%s", t.goFileName())
 	}
-	if action == "" {
-		t.Fatalf("execution recipe not found in GOROOT/test/%s", t.goFileName())
+	if firstLine, rest, ok := strings.Cut(action, "\n"); ok && strings.Contains(firstLine, "+build") {
+		// skip first line
+		action = rest
 	}
+	action = strings.TrimPrefix(action, "//")
 
 	// Check for build constraints only up to the actual code.
 	header, _, ok := strings.Cut(src, "\npackage")
@@ -1751,9 +1747,6 @@ func TestShouldTest(t *testing.T) {
 
 	// Test that (!a OR !b) matches anything.
 	assert(shouldTest("// +build !windows !plan9", "windows", "amd64"))
-
-	// Test that //go:build tag match.
-	assert(shouldTest("//go:build go1.4", "linux", "amd64"))
 }
 
 // overlayDir makes a minimal-overhead copy of srcRoot in which new files may be added.

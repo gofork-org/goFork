@@ -31,20 +31,13 @@ function stackViewer(stacks, nodes) {
       ['hrs', 60*60]]]]);
 
   // Fields
+  let shownTotal = 0;       // Total value of all stacks
   let pivots = [];          // Indices of currently selected data.Sources entries.
   let matches = new Set();  // Indices of sources that match search
   let elems = new Map();    // Mapping from source index to display elements
   let displayList = [];     // List of boxes to display.
   let actionMenuOn = false; // Is action menu visible?
   let actionTarget = null;  // Box on which action menu is operating.
-  let diff = false;         // Are we displaying a diff?
-
-  for (const stack of stacks.Stacks) {
-    if (stack.Value < 0) {
-      diff = true;
-      break;
-    }
-  }
 
   // Setup to allow measuring text width.
   const textSizer = document.createElement('canvas');
@@ -184,8 +177,9 @@ function stackViewer(stacks, nodes) {
   function handleEnter(box, div) {
     if (actionMenuOn) return;
     const src = stacks.Sources[box.src];
-    div.title = details(box) + ' │ ' + src.FullName + (src.Inlined ? "\n(inlined)" : "");
-    detailBox.innerText = summary(box.sumpos, box.sumneg);
+    const d = details(box);
+    div.title = d + ' ' + src.FullName + (src.Inlined ? "\n(inlined)" : "");
+    detailBox.innerText = d;
     // Highlight all boxes that have the same source as box.
     toggleClass(box.src, 'hilite2', true);
   }
@@ -234,16 +228,16 @@ function stackViewer(stacks, nodes) {
     const width = chart.clientWidth;
     elems.clear();
     actionTarget = null;
-    const [pos, neg] = totalValue(places);
-    const total = pos + neg;
+    const total = totalValue(places);
     const xscale = (width-2*PADDING) / total; // Converts from profile value to X pixels
     const x = PADDING;
     const y = 0;
+    shownTotal = total;
 
     displayList.length = 0;
     renderStacks(0, xscale, x, y, places, +1);  // Callees
     renderStacks(0, xscale, x, y-ROW, places, -1);  // Callers (ROW left for separator)
-    display(xscale, pos, neg, displayList);
+    display(displayList);
   }
 
   // renderStacks creates boxes with top-left at x,y with children drawn as
@@ -262,59 +256,29 @@ function stackViewer(stacks, nodes) {
     const groups = partitionPlaces(places);
     for (const g of groups) {
       renderGroup(depth, xscale, x, y, g, direction);
-      x += groupWidth(xscale, g);
+      x += xscale*g.sum;
     }
-  }
-
-  // Some of the types used below:
-  //
-  // // Group represents a displayed (sub)tree.
-  // interface Group {
-  //   name: string;     // Full name of source
-  //   src: number;	 // Index in stacks.Sources
-  //   self: number;     // Contribution as leaf (may be < 0 for diffs)
-  //   sumpos: number;	 // Sum of |self| of positive nodes in tree (>= 0)
-  //   sumneg: number;	 // Sum of |self| of negative nodes in tree (>= 0)
-  //   places: Place[];  // Stack slots that contributed to this group
-  // }
-  //
-  // // Box is a rendered item.
-  // interface Box {
-  //   x: number;	   // X coordinate of top-left
-  //   y: number;	   // Y coordinate of top-left
-  //   width: number;	   // Width of box to display
-  //   src: number;	   // Index in stacks.Sources
-  //   sumpos: number;	   // From corresponding Group
-  //   sumneg: number;	   // From corresponding Group
-  //   self: number;	   // From corresponding Group
-  // };
-
-  function groupWidth(xscale, g) {
-    return xscale * (g.sumpos + g.sumneg);
   }
 
   function renderGroup(depth, xscale, x, y, g, direction) {
     // Skip if not wide enough.
-    const width = groupWidth(xscale, g);
+    const width = xscale * g.sum;
     if (width < MIN_WIDTH) return;
 
     // Draw the box for g.src (except for selected element in upwards direction
     // since that duplicates the box we added in downwards direction).
     if (depth != 0 || direction > 0) {
       const box = {
-        x:      x,
-        y:      y,
-        width:  width,
-        src:    g.src,
-	sumpos: g.sumpos,
-	sumneg: g.sumneg,
-        self:   g.self,
+        x:         x,
+        y:         y,
+        src:       g.src,
+        sum:       g.sum,
+        selfValue: g.self,
+        width:     xscale*g.sum,
+        selfWidth: (direction > 0) ? xscale*g.self : 0,
       };
       displayList.push(box);
-      if (direction > 0) {
-	// Leave gap on left hand side to indicate self contribution.
-	x += xscale*Math.abs(g.self);
-      }
+      x += box.selfWidth;
     }
     y += direction * ROW;
 
@@ -358,15 +322,11 @@ function stackViewer(stacks, nodes) {
       let group = groupMap.get(src);
       if (!group) {
         const name = stacks.Sources[src].FullName;
-        group = {name: name, src: src, sumpos: 0, sumneg: 0, self: 0, places: []};
+        group = {name: name, src: src, sum: 0, self: 0, places: []};
         groupMap.set(src, group);
         groups.push(group);
       }
-      if (stack.Value < 0) {
-	group.sumneg += -stack.Value;
-      } else {
-	group.sumpos += stack.Value;
-      }
+      group.sum += stack.Value;
       group.self += (place.Pos == stack.Sources.length-1) ? stack.Value : 0;
       group.places.push(place);
     }
@@ -374,14 +334,12 @@ function stackViewer(stacks, nodes) {
     // Order by decreasing cost (makes it easier to spot heavy functions).
     // Though alphabetical ordering is a potential alternative that will make
     // profile comparisons easier.
-    groups.sort(function(a, b) {
-      return (b.sumpos + b.sumneg) - (a.sumpos + a.sumneg);
-    });
+    groups.sort(function(a, b) { return b.sum - a.sum; });
 
     return groups;
   }
 
-  function display(xscale, posTotal, negTotal, list) {
+  function display(list) {
     // Sort boxes so that text selection follows a predictable order.
     list.sort(function(a, b) {
       if (a.y != b.y) return a.y - b.y;
@@ -395,46 +353,40 @@ function stackViewer(stacks, nodes) {
     const divs = [];
     for (const box of list) {
       box.y -= adjust;
-      divs.push(drawBox(xscale, box));
+      divs.push(drawBox(box));
     }
-    divs.push(drawSep(-adjust, posTotal, negTotal));
+    divs.push(drawSep(-adjust));
 
     const h = (list.length > 0 ?  list[list.length-1].y : 0) + 4*ROW;
     chart.style.height = h+'px';
     chart.replaceChildren(...divs);
   }
 
-  function drawBox(xscale, box) {
+  function drawBox(box) {
     const srcIndex = box.src;
     const src = stacks.Sources[srcIndex];
 
-    function makeRect(cl, x, y, w, h) {
-      const r = document.createElement('div');
-      r.style.left = x+'px';
-      r.style.top = y+'px';
-      r.style.width = w+'px';
-      r.style.height = h+'px';
-      r.classList.add(cl);
-      return r;
-    }
-
     // Background
     const w = box.width - 1; // Leave 1px gap
-    const r = makeRect('boxbg', box.x, box.y, w, ROW);
-    if (!diff) r.style.background = makeColor(src.Color);
+    const r = document.createElement('div');
+    r.style.left = box.x + 'px';
+    r.style.top = box.y + 'px';
+    r.style.width = w + 'px';
+    r.style.height = ROW + 'px';
+    r.classList.add('boxbg');
+    r.style.background = makeColor(src.Color);
     addElem(srcIndex, r);
     if (!src.Inlined) {
       r.classList.add('not-inlined');
     }
 
-    // Positive/negative indicator for diff mode.
-    if (diff) {
-      const delta = box.sumpos - box.sumneg;
-      const partWidth = xscale * Math.abs(delta);
-      if (partWidth >= MIN_WIDTH) {
-	r.appendChild(makeRect((delta < 0 ? 'negative' : 'positive'),
-			       0, 0, partWidth, ROW-1));
-      }
+    // Box that shows time spent in self
+    if (box.selfWidth >= MIN_WIDTH) {
+      const s = document.createElement('div');
+      s.style.width = Math.min(box.selfWidth, w)+'px';
+      s.style.height = (ROW-1)+'px';
+      s.classList.add('self');
+      r.appendChild(s);
     }
 
     // Label
@@ -452,9 +404,11 @@ function stackViewer(stacks, nodes) {
     return r;
   }
 
-  function drawSep(y, posTotal, negTotal) {
+  function drawSep(y) {
     const m = document.createElement('div');
-    m.innerText = summary(posTotal, negTotal);
+    m.innerText = percent(shownTotal, stacks.Total) +
+	'\xa0\xa0\xa0\xa0' +  // Some non-breaking spaces
+	valueString(shownTotal);
     m.style.top = (y-ROW) + 'px';
     m.style.left = PADDING + 'px';
     m.style.width = (chart.clientWidth - PADDING*2) + 'px';
@@ -504,66 +458,36 @@ function stackViewer(stacks, nodes) {
     t.innerText = text;
   }
 
-  // totalValue returns the positive and negative sums of the Values of stacks
-  // listed in places.
+  // totalValue returns the combined sum of the stacks listed in places.
   function totalValue(places) {
     const seen = new Set();
-    let pos = 0;
-    let neg = 0;
+    let result = 0;
     for (const place of places) {
       if (seen.has(place.Stack)) continue; // Do not double-count stacks
       seen.add(place.Stack);
       const stack = stacks.Stacks[place.Stack];
-      if (stack.Value < 0) {
-	neg += -stack.Value;
-      } else {
-	pos += stack.Value;
-      }
-    }
-    return [pos, neg];
-  }
-
-  function summary(pos, neg) {
-    // Examples:
-    //    6s (10%)
-    //    12s (20%) 🠆 18s (30%)
-    return diff ? diffText(neg, pos) : percentText(pos);
-  }
-
-  function details(box) {
-    // Examples:
-    //    6s (10%)
-    //    6s (10%) │ self 3s (5%)
-    //    6s (10%) │ 12s (20%) 🠆 18s (30%)
-    let result = percentText(box.sumpos - box.sumneg);
-    if (box.self != 0) {
-      result += " │ self " + unitText(box.self);
-    }
-    if (diff && box.sumpos > 0 && box.sumneg > 0) {
-      result += " │ " + diffText(box.sumneg, box.sumpos);
+      result += stack.Value;
     }
     return result;
   }
 
-  // diffText returns text that displays from and to alongside their percentages.
-  // E.g., 9s (45%) 🠆 10s (50%)
-  function diffText(from, to) {
-    return percentText(from) + " 🠆 " + percentText(to);
-  }
-
-  // percentText returns text that displays v in appropriate units alongside its
-  // percentange.
-  function percentText(v) {
-    function percent(v, total) {
-      return Number(((100.0 * v) / total).toFixed(1)) + '%';
+  function details(box) {
+    // E.g., 10% 7s
+    // or    10% 7s (3s self
+    let result = percent(box.sum, stacks.Total) + ' ' + valueString(box.sum);
+    if (box.selfValue > 0) {
+      result += ` (${valueString(box.selfValue)} self)`;
     }
-    return unitText(v) + " (" + percent(v, stacks.Total) + ")";
+    return result;
   }
 
-  // unitText returns a formatted string to display for value.
-  function unitText(value) {
-    const sign = (value < 0) ? "-" : "";
-    let v = Math.abs(value) * stacks.Scale;
+  function percent(v, total) {
+    return Number(((100.0 * v) / total).toFixed(1)) + '%';
+  }
+
+  // valueString returns a formatted string to display for value.
+  function valueString(value) {
+    let v = value * stacks.Scale;
     // Rescale to appropriate display unit.
     let unit = stacks.Unit;
     const list = UNITS.get(unit);
@@ -577,7 +501,7 @@ function stackViewer(stacks, nodes) {
         }
       }
     }
-    return sign + Number(v.toFixed(2)) + unit;
+    return Number(v.toFixed(2)) + unit;
   }
 
   function find(name) {

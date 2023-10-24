@@ -14,8 +14,12 @@ static void (*setg_gcc)(void*);
 void
 x_cgo_init(G *g, void (*setg)(void*), void **tlsg, void **tlsbase)
 {
+	size_t size;
+
 	setg_gcc = setg;
-	_cgo_set_stacklo(g, NULL);
+
+	size = pthread_get_stacksize_np(pthread_self());
+	g->stacklo = (uintptr)&size - size + 4096;
 }
 
 
@@ -46,7 +50,6 @@ _cgo_sys_thread_start(ThreadStart *ts)
 	}
 }
 
-extern void crosscall1(void (*fn)(void), void (*setg_gcc)(void*), void *g);
 static void*
 threadentry(void *v)
 {
@@ -55,6 +58,6 @@ threadentry(void *v)
 	ts = *(ThreadStart*)v;
 	free(v);
 
-	crosscall1(ts.fn, setg_gcc, (void*)ts.g);
+	crosscall_amd64(ts.fn, setg_gcc, (void*)ts.g);
 	return nil;
 }

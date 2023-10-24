@@ -10,6 +10,7 @@ import (
 )
 
 var (
+	errTimedout       = syscall.ETIMEDOUT
 	errOpNotSupported = syscall.EOPNOTSUPP
 
 	abortedConnRequestErrors = []error{syscall.ERROR_NETNAME_DELETED, syscall.WSAECONNRESET} // see accept in fd_windows.go

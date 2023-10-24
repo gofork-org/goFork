@@ -75,7 +75,7 @@ func (c *UnixConn) SyscallConn() (syscall.RawConn, error) {
 	if !c.ok() {
 		return nil, syscall.EINVAL
 	}
-	return newRawConn(c.fd), nil
+	return newRawConn(c.fd)
 }
 
 // CloseRead shuts down the reading side of the Unix domain connection.
@@ -235,7 +235,7 @@ func (l *UnixListener) SyscallConn() (syscall.RawConn, error) {
 	if !l.ok() {
 		return nil, syscall.EINVAL
 	}
-	return newRawListener(l.fd), nil
+	return newRawListener(l.fd)
 }
 
 // AcceptUnix accepts the next incoming call and returns the new
@@ -287,7 +287,10 @@ func (l *UnixListener) SetDeadline(t time.Time) error {
 	if !l.ok() {
 		return syscall.EINVAL
 	}
-	return l.fd.SetDeadline(t)
+	if err := l.fd.pfd.SetDeadline(t); err != nil {
+		return &OpError{Op: "set", Net: l.fd.net, Source: nil, Addr: l.fd.laddr, Err: err}
+	}
+	return nil
 }
 
 // File returns a copy of the underlying os.File.

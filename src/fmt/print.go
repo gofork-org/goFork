@@ -112,8 +112,8 @@ func (b *buffer) writeByte(c byte) {
 	*b = append(*b, c)
 }
 
-func (b *buffer) writeRune(r rune) {
-	*b = utf8.AppendRune(*b, r)
+func (bp *buffer) writeRune(r rune) {
+	*bp = utf8.AppendRune(*bp, r)
 }
 
 // pp is used to store a printer's state and is reused with sync.Pool to avoid allocations.
@@ -336,7 +336,7 @@ func Appendln(b []byte, a ...any) []byte {
 }
 
 // getField gets the i'th field of the struct value.
-// If the field itself is a non-nil interface, return a value for
+// If the field is itself is an interface, return a value for
 // the thing inside the interface, not the interface itself.
 func getField(v reflect.Value, i int) reflect.Value {
 	val := v.Field(i)
@@ -550,7 +550,7 @@ func (p *pp) fmtPointer(value reflect.Value, verb rune) {
 	var u uintptr
 	switch value.Kind() {
 	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
-		u = uintptr(value.UnsafePointer())
+		u = value.Pointer()
 	default:
 		p.badVerb(verb)
 		return
@@ -872,10 +872,12 @@ func (p *pp) printValue(value reflect.Value, verb rune, depth int) {
 			t := f.Type()
 			if t.Elem().Kind() == reflect.Uint8 {
 				var bytes []byte
-				if f.Kind() == reflect.Slice || f.CanAddr() {
+				if f.Kind() == reflect.Slice {
 					bytes = f.Bytes()
+				} else if f.CanAddr() {
+					bytes = f.Slice(0, f.Len()).Bytes()
 				} else {
-					// We have an array, but we cannot Bytes() a non-addressable array,
+					// We have an array, but we cannot Slice() a non-addressable array,
 					// so we build a slice by hand. This is a rare case but it would be nice
 					// if reflection could help a little more.
 					bytes = make([]byte, f.Len())
@@ -914,7 +916,7 @@ func (p *pp) printValue(value reflect.Value, verb rune, depth int) {
 	case reflect.Pointer:
 		// pointer to array or slice or struct? ok at top level
 		// but not embedded (avoid loops)
-		if depth == 0 && f.UnsafePointer() != nil {
+		if depth == 0 && f.Pointer() != 0 {
 			switch a := f.Elem(); a.Kind() {
 			case reflect.Array, reflect.Slice, reflect.Struct, reflect.Map:
 				p.buf.writeByte('&')

@@ -147,7 +147,7 @@ func size(name string, t *testing.T) int64 {
 func equal(name1, name2 string) (r bool) {
 	switch runtime.GOOS {
 	case "windows":
-		r = strings.EqualFold(name1, name2)
+		r = strings.ToLower(name1) == strings.ToLower(name2)
 	default:
 		r = name1 == name2
 	}
@@ -1180,7 +1180,6 @@ func TestRenameCaseDifference(pt *testing.T) {
 			// Stat does not return the real case of the file (it returns what the called asked for)
 			// So we have to use readdir to get the real name of the file.
 			dirNames, err := fd.Readdirnames(-1)
-			fd.Close()
 			if err != nil {
 				t.Fatalf("readdirnames: %s", err)
 			}
@@ -2375,11 +2374,6 @@ func TestStatStdin(t *testing.T) {
 		Exit(0)
 	}
 
-	exe, err := Executable()
-	if err != nil {
-		t.Skipf("can't find executable: %v", err)
-	}
-
 	testenv.MustHaveExec(t)
 	t.Parallel()
 
@@ -2394,11 +2388,13 @@ func TestStatStdin(t *testing.T) {
 		t.Fatalf("unexpected Stdin mode (%v), want ModeCharDevice or ModeNamedPipe", mode)
 	}
 
-	cmd := testenv.Command(t, exe, "-test.run=^TestStatStdin$")
-	cmd = testenv.CleanCmdEnv(cmd)
-	cmd.Env = append(cmd.Env, "GO_WANT_HELPER_PROCESS=1")
-	// This will make standard input a pipe.
-	cmd.Stdin = strings.NewReader("output")
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = testenv.Command(t, "cmd", "/c", "echo output | "+Args[0]+" -test.run=TestStatStdin")
+	} else {
+		cmd = testenv.Command(t, "/bin/sh", "-c", "echo output | "+Args[0]+" -test.run=TestStatStdin")
+	}
+	cmd.Env = append(Environ(), "GO_WANT_HELPER_PROCESS=1")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -2610,7 +2606,7 @@ func TestGetppid(t *testing.T) {
 	testenv.MustHaveExec(t)
 	t.Parallel()
 
-	cmd := testenv.Command(t, Args[0], "-test.run=^TestGetppid$")
+	cmd := testenv.Command(t, Args[0], "-test.run=TestGetppid")
 	cmd.Env = append(Environ(), "GO_WANT_HELPER_PROCESS=1")
 
 	// verify that Getppid() from the forked process reports our process id
@@ -2825,53 +2821,6 @@ func TestDoubleCloseError(t *testing.T) {
 	t.Parallel()
 	t.Run("file", testDoubleCloseError(filepath.Join(sfdir, sfname)))
 	t.Run("dir", testDoubleCloseError(sfdir))
-}
-
-func TestUserCacheDir(t *testing.T) {
-	t.Parallel()
-
-	dir, err := UserCacheDir()
-	if err != nil {
-		t.Skipf("skipping: %v", err)
-	}
-	if dir == "" {
-		t.Fatalf("UserCacheDir returned %q; want non-empty path or error", dir)
-	}
-
-	if err := MkdirAll(dir, 0777); err != nil {
-		t.Fatalf("could not create UserCacheDir: %v", err)
-	}
-	d, err := MkdirTemp(dir, "TestUserCacheDir")
-	if err != nil {
-		t.Fatalf("could not create a directory in UserCacheDir: %v", err)
-	}
-	if err := Remove(d); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestUserConfigDir(t *testing.T) {
-	t.Parallel()
-
-	dir, err := UserConfigDir()
-	if err != nil {
-		t.Skipf("skipping: %v", err)
-	}
-	if dir == "" {
-		t.Fatalf("UserConfigDir returned %q; want non-empty path or error", dir)
-	}
-
-	if err := MkdirAll(dir, 0777); err != nil {
-		t.Fatalf("could not create UserConfigDir: %v", err)
-	}
-
-	d, err := MkdirTemp(dir, "TestUserConfigDir")
-	if err != nil {
-		t.Fatalf("could not create a directory in UserConfigDir: %v", err)
-	}
-	if err := Remove(d); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestUserHomeDir(t *testing.T) {

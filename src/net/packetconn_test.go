@@ -2,8 +2,10 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// This file implements API tests across platforms and should never have a build
-// constraint.
+// This file implements API tests across platforms and will never have a build
+// tag.
+
+//go:build !js && !wasip1
 
 package net
 

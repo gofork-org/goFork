@@ -322,7 +322,7 @@ type command struct {
 	background bool     // command should run in background (ends with a trailing &)
 }
 
-// An expectedStatus describes the expected outcome of a command.
+// A expectedStatus describes the expected outcome of a command.
 // Script execution halts when a command does not match its expected status.
 type expectedStatus string
 

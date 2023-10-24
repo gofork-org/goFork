@@ -461,7 +461,10 @@ func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			rw.WriteHeader(code)
 
 			// Clear headers, it's not automatically done by ResponseWriter.WriteHeader() for 1xx responses
-			clear(h)
+			for k := range h {
+				delete(h, k)
+			}
+
 			return nil
 		},
 	}

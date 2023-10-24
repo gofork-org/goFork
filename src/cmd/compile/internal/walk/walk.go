@@ -5,6 +5,7 @@
 package walk
 
 import (
+	"errors"
 	"fmt"
 
 	"cmd/compile/internal/base"
@@ -43,6 +44,10 @@ func Walk(fn *ir.Func) {
 	if base.Flag.W != 0 {
 		s := fmt.Sprintf("after walk %v", ir.CurFunc.Sym())
 		ir.DumpList(s, ir.CurFunc.Body)
+	}
+
+	if base.Flag.Cfg.Instrumenting {
+		instrument(fn)
 	}
 
 	// Eagerly compute sizes of all variables for SSA.
@@ -93,6 +98,8 @@ func convas(n *ir.AssignStmt, init *ir.Nodes) *ir.AssignStmt {
 	return n
 }
 
+var stop = errors.New("stop")
+
 func vmkcall(fn ir.Node, t *types.Type, init *ir.Nodes, va []ir.Node) *ir.CallExpr {
 	if init == nil {
 		base.Fatalf("mkcall with nil init: %v", fn)
@@ -137,34 +144,42 @@ func chanfn(name string, n int, t *types.Type) ir.Node {
 	if !t.IsChan() {
 		base.Fatalf("chanfn %v", t)
 	}
+	fn := typecheck.LookupRuntime(name)
 	switch n {
+	default:
+		base.Fatalf("chanfn %d", n)
 	case 1:
-		return typecheck.LookupRuntime(name, t.Elem())
+		fn = typecheck.SubstArgTypes(fn, t.Elem())
 	case 2:
-		return typecheck.LookupRuntime(name, t.Elem(), t.Elem())
+		fn = typecheck.SubstArgTypes(fn, t.Elem(), t.Elem())
 	}
-	base.Fatalf("chanfn %d", n)
-	return nil
+	return fn
 }
 
 func mapfn(name string, t *types.Type, isfat bool) ir.Node {
 	if !t.IsMap() {
 		base.Fatalf("mapfn %v", t)
 	}
+	fn := typecheck.LookupRuntime(name)
 	if mapfast(t) == mapslow || isfat {
-		return typecheck.LookupRuntime(name, t.Key(), t.Elem(), t.Key(), t.Elem())
+		fn = typecheck.SubstArgTypes(fn, t.Key(), t.Elem(), t.Key(), t.Elem())
+	} else {
+		fn = typecheck.SubstArgTypes(fn, t.Key(), t.Elem(), t.Elem())
 	}
-	return typecheck.LookupRuntime(name, t.Key(), t.Elem(), t.Elem())
+	return fn
 }
 
 func mapfndel(name string, t *types.Type) ir.Node {
 	if !t.IsMap() {
 		base.Fatalf("mapfn %v", t)
 	}
+	fn := typecheck.LookupRuntime(name)
 	if mapfast(t) == mapslow {
-		return typecheck.LookupRuntime(name, t.Key(), t.Elem(), t.Key())
+		fn = typecheck.SubstArgTypes(fn, t.Key(), t.Elem(), t.Key())
+	} else {
+		fn = typecheck.SubstArgTypes(fn, t.Key(), t.Elem())
 	}
-	return typecheck.LookupRuntime(name, t.Key(), t.Elem())
+	return fn
 }
 
 const (
@@ -329,7 +344,7 @@ func mayCall(n ir.Node) bool {
 			return n.Type().IsString() || n.Type().IsFloat()
 
 		case ir.OLITERAL, ir.ONIL, ir.ONAME, ir.OLINKSYMOFFSET, ir.OMETHEXPR,
-			ir.OAND, ir.OANDNOT, ir.OLSH, ir.OOR, ir.ORSH, ir.OXOR, ir.OCOMPLEX, ir.OMAKEFACE,
+			ir.OAND, ir.OANDNOT, ir.OLSH, ir.OOR, ir.ORSH, ir.OXOR, ir.OCOMPLEX, ir.OEFACE,
 			ir.OADDR, ir.OBITNOT, ir.ONOT, ir.OPLUS,
 			ir.OCAP, ir.OIMAG, ir.OLEN, ir.OREAL,
 			ir.OCONVNOP, ir.ODOT,

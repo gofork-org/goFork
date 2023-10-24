@@ -20,7 +20,6 @@ func Init() (*sys.Arch, ld.Arch) {
 		Dwarfregsp: dwarfRegSP,
 		Dwarfreglr: dwarfRegLR,
 
-		Adddynrel:        adddynrel,
 		Archinit:         archinit,
 		Archreloc:        archreloc,
 		Archrelocvariant: archrelocvariant,
@@ -42,7 +41,7 @@ func Init() (*sys.Arch, ld.Arch) {
 
 			Freebsddynld:   "/usr/libexec/ld-elf.so.1",
 			Netbsddynld:    "XXX",
-			Openbsddynld:   "/usr/libexec/ld.so",
+			Openbsddynld:   "XXX",
 			Dragonflydynld: "XXX",
 			Solarisdynld:   "XXX",
 
@@ -57,14 +56,14 @@ func Init() (*sys.Arch, ld.Arch) {
 
 func archinit(ctxt *ld.Link) {
 	switch ctxt.HeadType {
-	case objabi.Hlinux, objabi.Hfreebsd, objabi.Hopenbsd:
+	case objabi.Hlinux, objabi.Hfreebsd:
 		ld.Elfinit(ctxt)
 		ld.HEADR = ld.ELFRESERVE
+		if *ld.FlagTextAddr == -1 {
+			*ld.FlagTextAddr = 0x10000 + int64(ld.HEADR)
+		}
 		if *ld.FlagRound == -1 {
 			*ld.FlagRound = 0x10000
-		}
-		if *ld.FlagTextAddr == -1 {
-			*ld.FlagTextAddr = ld.Rnd(0x10000, *ld.FlagRound) + int64(ld.HEADR)
 		}
 	default:
 		ld.Exitf("unknown -H option: %v", ctxt.HeadType)

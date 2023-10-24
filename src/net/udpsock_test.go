@@ -2,11 +2,12 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !js && !wasip1
+
 package net
 
 import (
 	"errors"
-	"fmt"
 	"internal/testenv"
 	"net/netip"
 	"os"
@@ -115,10 +116,6 @@ func TestWriteToUDP(t *testing.T) {
 		t.Skipf("not supported on %s", runtime.GOOS)
 	}
 
-	if !testableNetwork("udp") {
-		t.Skipf("skipping: udp not supported")
-	}
-
 	c, err := ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -224,29 +221,19 @@ func TestUDPConnLocalName(t *testing.T) {
 	testenv.MustHaveExternalNetwork(t)
 
 	for _, tt := range udpConnLocalNameTests {
-		t.Run(fmt.Sprint(tt.laddr), func(t *testing.T) {
-			if !testableNetwork(tt.net) {
-				t.Skipf("skipping: %s not available", tt.net)
-			}
-
-			c, err := ListenUDP(tt.net, tt.laddr)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer c.Close()
-			la := c.LocalAddr()
-			if a, ok := la.(*UDPAddr); !ok || a.Port == 0 {
-				t.Fatalf("got %v; expected a proper address with non-zero port number", la)
-			}
-		})
+		c, err := ListenUDP(tt.net, tt.laddr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		la := c.LocalAddr()
+		if a, ok := la.(*UDPAddr); !ok || a.Port == 0 {
+			t.Fatalf("got %v; expected a proper address with non-zero port number", la)
+		}
 	}
 }
 
 func TestUDPConnLocalAndRemoteNames(t *testing.T) {
-	if !testableNetwork("udp") {
-		t.Skipf("skipping: udp not available")
-	}
-
 	for _, laddr := range []string{"", "127.0.0.1:0"} {
 		c1, err := ListenPacket("udp", "127.0.0.1:0")
 		if err != nil {
@@ -343,9 +330,6 @@ func TestUDPZeroBytePayload(t *testing.T) {
 	case "darwin", "ios":
 		testenv.SkipFlaky(t, 29225)
 	}
-	if !testableNetwork("udp") {
-		t.Skipf("skipping: udp not available")
-	}
 
 	c := newLocalPacketListener(t, "udp")
 	defer c.Close()
@@ -378,9 +362,6 @@ func TestUDPZeroByteBuffer(t *testing.T) {
 	switch runtime.GOOS {
 	case "plan9":
 		t.Skipf("not supported on %s", runtime.GOOS)
-	}
-	if !testableNetwork("udp") {
-		t.Skipf("skipping: udp not available")
 	}
 
 	c := newLocalPacketListener(t, "udp")
@@ -415,9 +396,6 @@ func TestUDPReadSizeError(t *testing.T) {
 	switch runtime.GOOS {
 	case "plan9":
 		t.Skipf("not supported on %s", runtime.GOOS)
-	}
-	if !testableNetwork("udp") {
-		t.Skipf("skipping: udp not available")
 	}
 
 	c1 := newLocalPacketListener(t, "udp")
@@ -456,10 +434,6 @@ func TestUDPReadSizeError(t *testing.T) {
 // TestUDPReadTimeout verifies that ReadFromUDP with timeout returns an error
 // without data or an address.
 func TestUDPReadTimeout(t *testing.T) {
-	if !testableNetwork("udp4") {
-		t.Skipf("skipping: udp4 not available")
-	}
-
 	la, err := ResolveUDPAddr("udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -486,14 +460,10 @@ func TestUDPReadTimeout(t *testing.T) {
 
 func TestAllocs(t *testing.T) {
 	switch runtime.GOOS {
-	case "plan9", "js", "wasip1":
-		// These implementations have not been optimized.
+	case "plan9":
+		// Plan9 wasn't optimized.
 		t.Skipf("skipping on %v", runtime.GOOS)
 	}
-	if !testableNetwork("udp4") {
-		t.Skipf("skipping: udp4 not available")
-	}
-
 	// Optimizations are required to remove the allocs.
 	testenv.SkipIfOptimizationOff(t)
 
@@ -620,10 +590,6 @@ func TestUDPIPVersionReadMsg(t *testing.T) {
 	case "plan9":
 		t.Skipf("skipping on %v", runtime.GOOS)
 	}
-	if !testableNetwork("udp4") {
-		t.Skipf("skipping: udp4 not available")
-	}
-
 	conn, err := ListenUDP("udp4", &UDPAddr{IP: IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
@@ -659,11 +625,8 @@ func TestUDPIPVersionReadMsg(t *testing.T) {
 // WriteMsgUDPAddrPort accepts IPv4, IPv4-mapped IPv6, and IPv6 target addresses
 // on a UDPConn listening on "::".
 func TestIPv6WriteMsgUDPAddrPortTargetAddrIPVersion(t *testing.T) {
-	if !testableNetwork("udp4") {
-		t.Skipf("skipping: udp4 not available")
-	}
-	if !testableNetwork("udp6") {
-		t.Skipf("skipping: udp6 not available")
+	if !supportsIPv6() {
+		t.Skip("IPv6 is not supported")
 	}
 
 	switch runtime.GOOS {

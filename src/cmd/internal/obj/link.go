@@ -1001,11 +1001,6 @@ type RegSpill struct {
 	Spill, Unspill As
 }
 
-// A Func represents a Go function. If non-nil, it must be a *ir.Func.
-type Func interface {
-	Pos() src.XPos
-}
-
 // Link holds the context for writing object code from a compiler
 // to be linker input or for reading that input into the linker.
 type Link struct {
@@ -1035,7 +1030,7 @@ type Link struct {
 	Imports            []goobj.ImportedPkg
 	DiagFunc           func(string, ...interface{})
 	DiagFlush          func()
-	DebugInfo          func(fn *LSym, info *LSym, curfn Func) ([]dwarf.Scope, dwarf.InlCalls)
+	DebugInfo          func(fn *LSym, info *LSym, curfn interface{}) ([]dwarf.Scope, dwarf.InlCalls, src.XPos) // if non-nil, curfn is a *ir.Func
 	GenAbstractFunc    func(fn *LSym)
 	Errors             int
 

@@ -6,6 +6,7 @@ package testing
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -28,11 +29,14 @@ func RunExamples(matchString func(pat, str string) (bool, error), examples []Int
 func runExamples(matchString func(pat, str string) (bool, error), examples []InternalExample) (ran, ok bool) {
 	ok = true
 
-	m := newMatcher(matchString, *match, "-test.run", *skip)
-
 	var eg InternalExample
+
 	for _, eg = range examples {
-		_, matched, _ := m.fullName(nil, eg.Name)
+		matched, err := matchString(*match, eg.Name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "testing: invalid regexp for -test.run: %s\n", err)
+			os.Exit(1)
+		}
 		if !matched {
 			continue
 		}

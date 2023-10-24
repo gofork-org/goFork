@@ -7,7 +7,6 @@
 package runtime
 
 import (
-	"internal/abi"
 	"internal/goarch"
 	"internal/goos"
 	"runtime/internal/atomic"
@@ -53,9 +52,6 @@ var CgoCheckPointer = cgoCheckPointer
 const TracebackInnerFrames = tracebackInnerFrames
 const TracebackOuterFrames = tracebackOuterFrames
 
-var MapKeys = keys
-var MapValues = values
-
 var LockPartialOrder = lockPartialOrder
 
 type LockRank lockRank
@@ -76,7 +72,7 @@ func LFStackPush(head *uint64, node *LFNode) {
 }
 
 func LFStackPop(head *uint64) *LFNode {
-	return (*LFNode)((*lfstack)(head).pop())
+	return (*LFNode)(unsafe.Pointer((*lfstack)(head).pop()))
 }
 func LFNodeValidate(node *LFNode) {
 	lfnodeValidate((*lfnode)(unsafe.Pointer(node)))
@@ -374,7 +370,7 @@ var ReadUnaligned64 = readUnaligned64
 func CountPagesInUse() (pagesInUse, counted uintptr) {
 	stopTheWorld(stwForTestCountPagesInUse)
 
-	pagesInUse = mheap_.pagesInUse.Load()
+	pagesInUse = uintptr(mheap_.pagesInUse.Load())
 
 	for _, s := range mheap_.allspans {
 		if s.state.get() == mSpanInUse {
@@ -407,7 +403,7 @@ const (
 )
 
 func (p *ProfBuf) Read(mode profBufReadMode) ([]uint64, []unsafe.Pointer, bool) {
-	return (*profBuf)(p).read(mode)
+	return (*profBuf)(p).read(profBufReadMode(mode))
 }
 
 func (p *ProfBuf) Close() {
@@ -489,15 +485,15 @@ func ReadMemStatsSlow() (base, slow MemStats) {
 		// Collect per-sizeclass free stats.
 		var smallFree uint64
 		for i := 0; i < _NumSizeClasses; i++ {
-			slow.Frees += m.smallFreeCount[i]
-			bySize[i].Frees += m.smallFreeCount[i]
-			bySize[i].Mallocs += m.smallFreeCount[i]
-			smallFree += m.smallFreeCount[i] * uint64(class_to_size[i])
+			slow.Frees += uint64(m.smallFreeCount[i])
+			bySize[i].Frees += uint64(m.smallFreeCount[i])
+			bySize[i].Mallocs += uint64(m.smallFreeCount[i])
+			smallFree += uint64(m.smallFreeCount[i]) * uint64(class_to_size[i])
 		}
-		slow.Frees += m.tinyAllocCount + m.largeFreeCount
+		slow.Frees += uint64(m.tinyAllocCount) + uint64(m.largeFreeCount)
 		slow.Mallocs += slow.Frees
 
-		slow.TotalAlloc = slow.Alloc + m.largeFree + smallFree
+		slow.TotalAlloc = slow.Alloc + uint64(m.largeFree) + smallFree
 
 		for i := range slow.BySize {
 			slow.BySize[i].Mallocs = bySize[i].Mallocs
@@ -584,10 +580,6 @@ func MapBucketsCount(m map[int]int) int {
 func MapBucketsPointerIsNil(m map[int]int) bool {
 	h := *(**hmap)(unsafe.Pointer(&m))
 	return h.buckets == nil
-}
-
-func OverLoadFactor(count int, B uint8) bool {
-	return overLoadFactor(count, B)
 }
 
 func LockOSCounts() (external, internal uint32) {
@@ -689,15 +681,6 @@ func unexportedPanicForTesting(b []byte, i int) byte {
 
 func G0StackOverflow() {
 	systemstack(func() {
-		g0 := getg()
-		sp := getcallersp()
-		// The stack bounds for g0 stack is not always precise.
-		// Use an artificially small stack, to trigger a stack overflow
-		// without actually run out of the system stack (which may seg fault).
-		g0.stack.lo = sp - 4096
-		g0.stackguard0 = g0.stack.lo + stackGuard
-		g0.stackguard1 = g0.stackguard0
-
 		stackOverflow(nil)
 	})
 }
@@ -1346,7 +1329,7 @@ func (t *SemTable) Enqueue(addr *uint32) {
 //
 // Returns true if there actually was a waiter to be dequeued.
 func (t *SemTable) Dequeue(addr *uint32) bool {
-	s, _, _ := t.semTable.rootFor(addr).dequeue(addr)
+	s, _ := t.semTable.rootFor(addr).dequeue(addr)
 	if s != nil {
 		releaseSudog(s)
 		return true
@@ -1379,7 +1362,7 @@ func FreeMSpan(s *MSpan) {
 
 func MSpanCountAlloc(ms *MSpan, bits []byte) int {
 	s := (*mspan)(ms)
-	s.nelems = uint16(len(bits) * 8)
+	s.nelems = uintptr(len(bits) * 8)
 	s.gcmarkBits = (*gcBits)(unsafe.Pointer(&bits[0]))
 	result := s.countAlloc()
 	s.gcmarkBits = nil
@@ -1836,6 +1819,10 @@ func (s *ScavengeIndex) SetEmpty(ci ChunkIdx) {
 	s.i.setEmpty(chunkIdx(ci))
 }
 
+func (s *ScavengeIndex) SetNoHugePage(ci ChunkIdx) {
+	s.i.setNoHugePage(chunkIdx(ci))
+}
+
 func CheckPackScavChunkData(gen uint32, inUse, lastInUse uint16, flags uint8) bool {
 	sc0 := scavChunkData{
 		gen:            gen,
@@ -1946,30 +1933,4 @@ func SetPinnerLeakPanic(f func()) {
 }
 func GetPinnerLeakPanic() func() {
 	return pinnerLeakPanic
-}
-
-var testUintptr uintptr
-
-func MyGenericFunc[T any]() {
-	systemstack(func() {
-		testUintptr = 4
-	})
-}
-
-func UnsafePoint(pc uintptr) bool {
-	fi := findfunc(pc)
-	v := pcdatavalue(fi, abi.PCDATA_UnsafePoint, pc)
-	switch v {
-	case abi.UnsafePointUnsafe:
-		return true
-	case abi.UnsafePointSafe:
-		return false
-	case abi.UnsafePointRestart1, abi.UnsafePointRestart2, abi.UnsafePointRestartAtEntry:
-		// These are all interruptible, they just encode a nonstandard
-		// way of recovering when interrupted.
-		return false
-	default:
-		var buf [20]byte
-		panic("invalid unsafe point code " + string(itoa(buf[:], uint64(v))))
-	}
 }

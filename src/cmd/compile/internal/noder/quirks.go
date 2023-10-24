@@ -62,7 +62,7 @@ func typeExprEndPos(expr0 syntax.Expr) syntax.Pos {
 			}
 
 		case *syntax.IndexExpr: // explicit type instantiation
-			targs := syntax.UnpackListExpr(expr.Index)
+			targs := unpackListExpr(expr.Index)
 			expr0 = targs[len(targs)-1]
 
 		default:

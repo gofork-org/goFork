@@ -19,7 +19,8 @@ void (*x_cgo_inittls)(void **tlsg, void **tlsbase) __attribute__((common));
 void
 x_cgo_init(G *g, void (*setg)(void*), void **tlsg, void **tlsbase)
 {
-	uintptr *pbounds;
+	pthread_attr_t *attr;
+	size_t size;
 
 	/* The memory sanitizer distributed with versions of clang
 	   before 3.8 has a bug: if you call mmap before malloc, mmap
@@ -37,12 +38,17 @@ x_cgo_init(G *g, void (*setg)(void*), void **tlsg, void **tlsbase)
 	   malloc, so we actually use the memory we allocate.  */
 
 	setg_gcc = setg;
-	pbounds = (uintptr*)malloc(2 * sizeof(uintptr));
-	if (pbounds == NULL) {
+	attr = (pthread_attr_t*)malloc(sizeof *attr);
+	if (attr == NULL) {
 		fatalf("malloc failed: %s", strerror(errno));
 	}
-	_cgo_set_stacklo(g, pbounds);
-	free(pbounds);
+	pthread_attr_init(attr);
+	pthread_attr_getstacksize(attr, &size);
+	g->stacklo = (uintptr)__builtin_frame_address(0) - size + 4096;
+	if (g->stacklo >= g->stackhi)
+		fatalf("bad stack bounds: lo=%p hi=%p\n", g->stacklo, g->stackhi);
+	pthread_attr_destroy(attr);
+	free(attr);
 
 	if (x_cgo_inittls) {
 		x_cgo_inittls(tlsg, tlsbase);
@@ -75,7 +81,6 @@ _cgo_sys_thread_start(ThreadStart *ts)
 	}
 }
 
-extern void crosscall1(void (*fn)(void), void (*setg_gcc)(void*), void *g);
 static void*
 threadentry(void *v)
 {
@@ -86,6 +91,6 @@ threadentry(void *v)
 	free(v);
 	_cgo_tsan_release();
 
-	crosscall1(ts.fn, setg_gcc, (void*)ts.g);
+	crosscall_amd64(ts.fn, setg_gcc, (void*)ts.g);
 	return nil;
 }

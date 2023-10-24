@@ -270,7 +270,7 @@ func (b *Builder) gccToolID(name, language string) (id, exe string, err error) {
 		}
 		exe = fields[0]
 		if !strings.ContainsAny(exe, `/\`) {
-			if lp, err := cfg.LookPath(exe); err == nil {
+			if lp, err := exec.LookPath(exe); err == nil {
 				exe = lp
 			}
 		}
@@ -343,7 +343,16 @@ func (b *Builder) gccgoBuildIDFile(a *Action) (string, error) {
 		fmt.Fprintf(&buf, "\t"+`.section .note.GNU-split-stack,"",%s`+"\n", secType)
 	}
 
-	if err := b.Shell(a).writeFile(sfile, buf.Bytes()); err != nil {
+	if cfg.BuildN || cfg.BuildX {
+		for _, line := range bytes.Split(buf.Bytes(), []byte("\n")) {
+			b.Showcmd("", "echo '%s' >> %s", line, sfile)
+		}
+		if cfg.BuildN {
+			return sfile, nil
+		}
+	}
+
+	if err := os.WriteFile(sfile, buf.Bytes(), 0666); err != nil {
 		return "", err
 	}
 
@@ -467,8 +476,8 @@ func (b *Builder) useCache(a *Action, actionHash cache.ActionID, target string, 
 					// If it doesn't work, it doesn't work: reusing the cached binary is more
 					// important than reprinting diagnostic information.
 					if printOutput {
-						showStdout(b, c, a, "stdout")      // compile output
-						showStdout(b, c, a, "link-stdout") // link output
+						showStdout(b, c, a.actionID, "stdout")      // compile output
+						showStdout(b, c, a.actionID, "link-stdout") // link output
 					}
 
 					// Poison a.Target to catch uses later in the build.
@@ -495,8 +504,8 @@ func (b *Builder) useCache(a *Action, actionHash cache.ActionID, target string, 
 		// If it doesn't work, it doesn't work: reusing the test result is more
 		// important than reprinting diagnostic information.
 		if printOutput {
-			showStdout(b, c, a.Deps[0], "stdout")      // compile output
-			showStdout(b, c, a.Deps[0], "link-stdout") // link output
+			showStdout(b, c, a.Deps[0].actionID, "stdout")      // compile output
+			showStdout(b, c, a.Deps[0].actionID, "link-stdout") // link output
 		}
 
 		// Poison a.Target to catch uses later in the build.
@@ -509,7 +518,7 @@ func (b *Builder) useCache(a *Action, actionHash cache.ActionID, target string, 
 	if file, _, err := cache.GetFile(c, actionHash); err == nil {
 		if buildID, err := buildid.ReadFile(file); err == nil {
 			if printOutput {
-				showStdout(b, c, a, "stdout")
+				showStdout(b, c, a.actionID, "stdout")
 			}
 			a.built = file
 			a.Target = "DO NOT USE - using cache"
@@ -551,21 +560,20 @@ func (b *Builder) useCache(a *Action, actionHash cache.ActionID, target string, 
 	return false
 }
 
-func showStdout(b *Builder, c cache.Cache, a *Action, key string) error {
-	actionID := a.actionID
-
+func showStdout(b *Builder, c cache.Cache, actionID cache.ActionID, key string) error {
 	stdout, stdoutEntry, err := cache.GetBytes(c, cache.Subkey(actionID, key))
 	if err != nil {
 		return err
 	}
 
 	if len(stdout) > 0 {
-		sh := b.Shell(a)
 		if cfg.BuildX || cfg.BuildN {
-			sh.ShowCmd("", "%s  # internal", joinUnambiguously(str.StringList("cat", c.OutputFile(stdoutEntry.OutputID))))
+			b.Showcmd("", "%s  # internal", joinUnambiguously(str.StringList("cat", c.OutputFile(stdoutEntry.OutputID))))
 		}
 		if !cfg.BuildN {
-			sh.Print(string(stdout))
+			b.output.Lock()
+			defer b.output.Unlock()
+			b.Print(string(stdout))
 		}
 	}
 	return nil
@@ -573,7 +581,9 @@ func showStdout(b *Builder, c cache.Cache, a *Action, key string) error {
 
 // flushOutput flushes the output being queued in a.
 func (b *Builder) flushOutput(a *Action) {
-	b.Shell(a).Print(string(a.output))
+	b.output.Lock()
+	defer b.output.Unlock()
+	b.Print(string(a.output))
 	a.output = nil
 }
 
@@ -586,11 +596,9 @@ func (b *Builder) flushOutput(a *Action) {
 //
 // Keep in sync with src/cmd/buildid/buildid.go
 func (b *Builder) updateBuildID(a *Action, target string, rewrite bool) error {
-	sh := b.Shell(a)
-
 	if cfg.BuildX || cfg.BuildN {
 		if rewrite {
-			sh.ShowCmd("", "%s # internal", joinUnambiguously(str.StringList(base.Tool("buildid"), "-w", target)))
+			b.Showcmd("", "%s # internal", joinUnambiguously(str.StringList(base.Tool("buildid"), "-w", target)))
 		}
 		if cfg.BuildN {
 			return nil
@@ -679,7 +687,7 @@ func (b *Builder) updateBuildID(a *Action, target string, rewrite bool) error {
 			outputID, _, err := c.Put(a.actionID, r)
 			r.Close()
 			if err == nil && cfg.BuildX {
-				sh.ShowCmd("", "%s # internal", joinUnambiguously(str.StringList("cp", target, c.OutputFile(outputID))))
+				b.Showcmd("", "%s # internal", joinUnambiguously(str.StringList("cp", target, c.OutputFile(outputID))))
 			}
 			if b.NeedExport {
 				if err != nil {

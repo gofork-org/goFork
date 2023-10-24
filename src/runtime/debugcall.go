@@ -2,10 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Though the debug call function feature is not enabled on
-// ppc64, inserted ppc64 to avoid missing Go declaration error
-// for debugCallPanicked while building runtime.test
-//go:build amd64 || arm64 || ppc64le || ppc64
+//go:build amd64 || arm64
 
 package runtime
 
@@ -86,7 +83,7 @@ func debugCallCheck(pc uintptr) string {
 		if pc != f.entry() {
 			pc--
 		}
-		up := pcdatavalue(f, abi.PCDATA_UnsafePoint, pc)
+		up := pcdatavalue(f, abi.PCDATA_UnsafePoint, pc, nil)
 		if up != abi.UnsafePointSafe {
 			// Not at a safe point.
 			ret = debugCallUnsafePoint

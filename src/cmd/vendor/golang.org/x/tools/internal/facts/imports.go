@@ -55,7 +55,7 @@ func importMap(imports []*types.Package) map[string]*types.Package {
 			// infinite expansions:
 			//     type N[T any] struct { F *N[N[T]] }
 			// importMap() is called on such types when Analyzer.RunDespiteErrors is true.
-			T = typeparams.NamedTypeOrigin(T)
+			T = typeparams.NamedTypeOrigin(T).(*types.Named)
 			if !typs[T] {
 				typs[T] = true
 				addObj(T.Obj())

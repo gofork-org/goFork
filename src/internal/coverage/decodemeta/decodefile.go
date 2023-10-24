@@ -147,7 +147,7 @@ func (r *CoverageMetaFileReader) CounterMode() coverage.CounterMode {
 	return r.hdr.CMode
 }
 
-// CounterGranularity returns the counter granularity (single counter per
+// CounterMode returns the counter granularity (single counter per
 // function, or counter per block) selected when building for coverage
 // for the program that produce this meta-data file.
 func (r *CoverageMetaFileReader) CounterGranularity() coverage.CounterGranularity {

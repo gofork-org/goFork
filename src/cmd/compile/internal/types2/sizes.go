@@ -112,8 +112,8 @@ func (s *StdSizes) Alignof(T Type) (result int64) {
 }
 
 func IsSyncAtomicAlign64(T Type) bool {
-	named := asNamed(T)
-	if named == nil {
+	named, ok := T.(*Named)
+	if !ok {
 		return false
 	}
 	obj := named.Obj()
@@ -227,7 +227,7 @@ func (s *StdSizes) Sizeof(T Type) int64 {
 }
 
 // common architecture word sizes and alignments
-var gcArchSizes = map[string]*gcSizes{
+var gcArchSizes = map[string]*StdSizes{
 	"386":      {4, 4},
 	"amd64":    {8, 8},
 	"amd64p32": {4, 8},
@@ -255,15 +255,20 @@ var gcArchSizes = map[string]*gcSizes{
 // "386", "amd64", "amd64p32", "arm", "arm64", "loong64", "mips", "mipsle",
 // "mips64", "mips64le", "ppc64", "ppc64le", "riscv64", "s390x", "sparc64", "wasm".
 func SizesFor(compiler, arch string) Sizes {
+	var m map[string]*StdSizes
 	switch compiler {
 	case "gc":
-		return gcSizesFor(compiler, arch)
+		m = gcArchSizes
 	case "gccgo":
-		if s, ok := gccgoArchSizes[arch]; ok {
-			return s
-		}
+		m = gccgoArchSizes
+	default:
+		return nil
 	}
-	return nil
+	s, ok := m[arch]
+	if !ok {
+		return nil
+	}
+	return s
 }
 
 // stdSizes is used if Config.Sizes == nil.

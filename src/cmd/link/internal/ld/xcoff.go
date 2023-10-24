@@ -544,14 +544,15 @@ func Xcoffinit(ctxt *Link) {
 	xfile.dynLibraries = make(map[string]int)
 
 	HEADR = int32(Rnd(XCOFFHDRRESERVE, XCOFFSECTALIGN))
-	if *FlagRound != -1 {
-		Errorf(nil, "-R not available on AIX")
-	}
-	*FlagRound = XCOFFSECTALIGN
 	if *FlagTextAddr != -1 {
 		Errorf(nil, "-T not available on AIX")
 	}
-	*FlagTextAddr = Rnd(XCOFFTEXTBASE, *FlagRound) + int64(HEADR)
+	*FlagTextAddr = XCOFFTEXTBASE + int64(HEADR)
+	if *FlagRound != -1 {
+		Errorf(nil, "-R not available on AIX")
+	}
+	*FlagRound = int(XCOFFSECTALIGN)
+
 }
 
 // SYMBOL TABLE
@@ -1580,7 +1581,7 @@ func xcoffwrite(ctxt *Link) {
 func asmbXcoff(ctxt *Link) {
 	ctxt.Out.SeekSet(0)
 	fileoff := int64(Segdwarf.Fileoff + Segdwarf.Filelen)
-	fileoff = int64(Rnd(int64(fileoff), *FlagRound))
+	fileoff = int64(Rnd(int64(fileoff), int64(*FlagRound)))
 
 	xfile.sectNameToScnum = make(map[string]int16)
 

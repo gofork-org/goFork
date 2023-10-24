@@ -153,11 +153,9 @@ func readELF(name string, f *os.File, data []byte) (buildid string, err error) {
 			}
 			off += notesz
 			align := p.Align
-			if align != 0 {
-				alignedOff := (off + align - 1) &^ (align - 1)
-				notesz += alignedOff - off
-				off = alignedOff
-			}
+			alignedOff := (off + align - 1) &^ (align - 1)
+			notesz += alignedOff - off
+			off = alignedOff
 			filesz -= notesz
 			note = note[notesz:]
 		}

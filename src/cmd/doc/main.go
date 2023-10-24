@@ -147,6 +147,12 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 			panic(e)
 		}()
 
+		// We have a package.
+		if showAll && symbol == "" {
+			pkg.allDoc()
+			return
+		}
+
 		switch {
 		case symbol == "":
 			pkg.packageDoc() // The package exists, so we got some output.
@@ -155,10 +161,13 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 			if pkg.symbolDoc(symbol) {
 				return
 			}
-		case pkg.printMethodDoc(symbol, method):
-			return
-		case pkg.printFieldDoc(symbol, method):
-			return
+		default:
+			if pkg.methodDoc(symbol, method) {
+				return
+			}
+			if pkg.fieldDoc(symbol, method) {
+				return
+			}
 		}
 	}
 }

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !js
+
 package net
 
 import (
@@ -151,7 +153,7 @@ func initConfVal() {
 	}
 }
 
-// goosPrefersCgo reports whether the GOOS value passed in prefers
+// goosPreferCgo reports whether the GOOS value passed in prefers
 // the cgo resolver.
 func goosPrefersCgo() bool {
 	switch runtime.GOOS {
@@ -183,24 +185,7 @@ func goosPrefersCgo() bool {
 // required to use the go resolver. The provided Resolver is optional.
 // This will report true if the cgo resolver is not available.
 func (c *conf) mustUseGoResolver(r *Resolver) bool {
-	if !cgoAvailable {
-		return true
-	}
-
-	if runtime.GOOS == "plan9" {
-		// TODO(bradfitz): for now we only permit use of the PreferGo
-		// implementation when there's a non-nil Resolver with a
-		// non-nil Dialer. This is a sign that they the code is trying
-		// to use their DNS-speaking net.Conn (such as an in-memory
-		// DNS cache) and they don't want to actually hit the network.
-		// Once we add support for looking the default DNS servers
-		// from plan9, though, then we can relax this.
-		if r == nil || r.Dial == nil {
-			return false
-		}
-	}
-
-	return c.netGo || r.preferGo()
+	return c.netGo || r.preferGo() || !cgoAvailable
 }
 
 // addrLookupOrder determines which strategy to use to resolve addresses.
@@ -236,7 +221,16 @@ func (c *conf) lookupOrder(r *Resolver, hostname string) (ret hostLookupOrder, d
 		// Go resolver was explicitly requested
 		// or cgo resolver is not available.
 		// Figure out the order below.
-		fallbackOrder = hostLookupFilesDNS
+		switch c.goos {
+		case "windows":
+			// TODO(bradfitz): implement files-based
+			// lookup on Windows too? I guess /etc/hosts
+			// kinda exists on Windows. But for now, only
+			// do DNS.
+			fallbackOrder = hostLookupDNS
+		default:
+			fallbackOrder = hostLookupFilesDNS
+		}
 		canUseCgo = false
 	} else if c.netCgo {
 		// Cgo resolver was explicitly requested.

@@ -2,14 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package slices_test
+package slices
 
 import (
 	"cmp"
 	"internal/race"
 	"internal/testenv"
 	"math"
-	. "slices"
 	"strings"
 	"testing"
 )
@@ -1000,6 +999,25 @@ func BenchmarkReplace(b *testing.B) {
 
 }
 
+func TestRotate(t *testing.T) {
+	const N = 10
+	s := make([]int, 0, N)
+	for n := 0; n < N; n++ {
+		for r := 0; r < n; r++ {
+			s = s[:0]
+			for i := 0; i < n; i++ {
+				s = append(s, i)
+			}
+			rotateLeft(s, r)
+			for i := 0; i < n; i++ {
+				if s[i] != (i+r)%n {
+					t.Errorf("expected n=%d r=%d i:%d want:%d got:%d", n, r, i, (i+r)%n, s[i])
+				}
+			}
+		}
+	}
+}
+
 func TestInsertGrowthRate(t *testing.T) {
 	b := make([]byte, 1)
 	maxCap := cap(b)
@@ -1053,103 +1071,5 @@ func TestInference(t *testing.T) {
 	apply(s2, Reverse)
 	if want := (S{6, 5, 4}); !Equal(s2, want) {
 		t.Errorf("Reverse(%v) = %v, want %v", S{4, 5, 6}, s2, want)
-	}
-}
-
-func TestConcat(t *testing.T) {
-	cases := []struct {
-		s    [][]int
-		want []int
-	}{
-		{
-			s:    [][]int{nil},
-			want: nil,
-		},
-		{
-			s:    [][]int{{1}},
-			want: []int{1},
-		},
-		{
-			s:    [][]int{{1}, {2}},
-			want: []int{1, 2},
-		},
-		{
-			s:    [][]int{{1}, nil, {2}},
-			want: []int{1, 2},
-		},
-	}
-	for _, tc := range cases {
-		got := Concat(tc.s...)
-		if !Equal(tc.want, got) {
-			t.Errorf("Concat(%v) = %v, want %v", tc.s, got, tc.want)
-		}
-		var sink []int
-		allocs := testing.AllocsPerRun(5, func() {
-			sink = Concat(tc.s...)
-		})
-		_ = sink
-		if allocs > 1 {
-			errorf := t.Errorf
-			if testenv.OptimizationOff() || race.Enabled {
-				errorf = t.Logf
-			}
-			errorf("Concat(%v) allocated %v times; want 1", tc.s, allocs)
-		}
-	}
-}
-
-func TestConcat_too_large(t *testing.T) {
-	// Use zero length element to minimize memory in testing
-	type void struct{}
-	cases := []struct {
-		lengths     []int
-		shouldPanic bool
-	}{
-		{
-			lengths:     []int{0, 0},
-			shouldPanic: false,
-		},
-		{
-			lengths:     []int{math.MaxInt, 0},
-			shouldPanic: false,
-		},
-		{
-			lengths:     []int{0, math.MaxInt},
-			shouldPanic: false,
-		},
-		{
-			lengths:     []int{math.MaxInt - 1, 1},
-			shouldPanic: false,
-		},
-		{
-			lengths:     []int{math.MaxInt - 1, 1, 1},
-			shouldPanic: true,
-		},
-		{
-			lengths:     []int{math.MaxInt, 1},
-			shouldPanic: true,
-		},
-		{
-			lengths:     []int{math.MaxInt, math.MaxInt},
-			shouldPanic: true,
-		},
-	}
-	for _, tc := range cases {
-		var r any
-		ss := make([][]void, 0, len(tc.lengths))
-		for _, l := range tc.lengths {
-			s := make([]void, l)
-			ss = append(ss, s)
-		}
-		func() {
-			defer func() {
-				r = recover()
-			}()
-			_ = Concat(ss...)
-		}()
-		if didPanic := r != nil; didPanic != tc.shouldPanic {
-			t.Errorf("slices.Concat(lens(%v)) got panic == %v",
-				tc.lengths, didPanic)
-		}
 	}
 }

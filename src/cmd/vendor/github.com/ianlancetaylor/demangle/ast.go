@@ -38,42 +38,25 @@ type AST interface {
 // ASTToString returns the demangled name of the AST.
 func ASTToString(a AST, options ...Option) string {
 	tparams := true
-	enclosingParams := true
 	llvmStyle := false
-	max := 0
 	for _, o := range options {
-		switch {
-		case o == NoTemplateParams:
+		switch o {
+		case NoTemplateParams:
 			tparams = false
-		case o == NoEnclosingParams:
-			enclosingParams = false
-		case o == LLVMStyle:
+		case LLVMStyle:
 			llvmStyle = true
-		case isMaxLength(o):
-			max = maxLength(o)
 		}
 	}
 
-	ps := printState{
-		tparams:         tparams,
-		enclosingParams: enclosingParams,
-		llvmStyle:       llvmStyle,
-		max:             max,
-	}
+	ps := printState{tparams: tparams, llvmStyle: llvmStyle}
 	a.print(&ps)
-	s := ps.buf.String()
-	if max > 0 && len(s) > max {
-		s = s[:max]
-	}
-	return s
+	return ps.buf.String()
 }
 
 // The printState type holds information needed to print an AST.
 type printState struct {
-	tparams         bool // whether to print template parameters
-	enclosingParams bool // whether to print enclosing parameters
-	llvmStyle       bool
-	max             int // maximum output length
+	tparams   bool // whether to print template parameters
+	llvmStyle bool
 
 	buf  strings.Builder
 	last byte // Last byte written to buffer.
@@ -105,10 +88,6 @@ func (ps *printState) writeString(s string) {
 
 // Print an AST.
 func (ps *printState) print(a AST) {
-	if ps.max > 0 && ps.buf.Len() > ps.max {
-		return
-	}
-
 	c := 0
 	for _, v := range ps.printing {
 		if v == a {
@@ -1165,7 +1144,7 @@ type FunctionType struct {
 
 func (ft *FunctionType) print(ps *printState) {
 	retType := ft.Return
-	if ft.ForLocalName && (!ps.enclosingParams || !ps.llvmStyle) {
+	if ft.ForLocalName && !ps.llvmStyle {
 		retType = nil
 	}
 	if retType != nil {
@@ -1222,18 +1201,16 @@ func (ft *FunctionType) printArgs(ps *printState) {
 	}
 
 	ps.writeByte('(')
-	if !ft.ForLocalName || ps.enclosingParams {
-		first := true
-		for _, a := range ft.Args {
-			if ps.isEmpty(a) {
-				continue
-			}
-			if !first {
-				ps.writeString(", ")
-			}
-			ps.print(a)
-			first = false
+	first := true
+	for _, a := range ft.Args {
+		if ps.isEmpty(a) {
+			continue
 		}
+		if !first {
+			ps.writeString(", ")
+		}
+		ps.print(a)
+		first = false
 	}
 	ps.writeByte(')')
 

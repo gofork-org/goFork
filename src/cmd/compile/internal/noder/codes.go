@@ -55,10 +55,7 @@ const (
 	exprConvert
 	exprNew
 	exprMake
-	exprSizeof
-	exprAlignof
-	exprOffsetof
-	exprZero
+	exprNil
 	exprFuncInst
 	exprRecv
 	exprReshape

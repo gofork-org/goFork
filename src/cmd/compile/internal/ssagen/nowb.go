@@ -56,8 +56,11 @@ func newNowritebarrierrecChecker() *nowritebarrierrecChecker {
 	// important to handle it for this check, so we model it
 	// directly. This has to happen before transforming closures in walk since
 	// it's a lot harder to work out the argument after.
-	for _, n := range typecheck.Target.Funcs {
-		c.curfn = n
+	for _, n := range typecheck.Target.Decls {
+		if n.Op() != ir.ODCLFUNC {
+			continue
+		}
+		c.curfn = n.(*ir.Func)
 		if c.curfn.ABIWrapper() {
 			// We only want "real" calls to these
 			// functions, not the generated ones within
@@ -75,14 +78,14 @@ func (c *nowritebarrierrecChecker) findExtraCalls(nn ir.Node) {
 		return
 	}
 	n := nn.(*ir.CallExpr)
-	if n.Fun == nil || n.Fun.Op() != ir.ONAME {
+	if n.X == nil || n.X.Op() != ir.ONAME {
 		return
 	}
-	fn := n.Fun.(*ir.Name)
+	fn := n.X.(*ir.Name)
 	if fn.Class != ir.PFUNC || fn.Defn == nil {
 		return
 	}
-	if types.RuntimeSymName(fn.Sym()) != "systemstack" {
+	if !types.IsRuntimePkg(fn.Sym().Pkg) || fn.Sym().Name != "systemstack" {
 		return
 	}
 
@@ -97,6 +100,9 @@ func (c *nowritebarrierrecChecker) findExtraCalls(nn ir.Node) {
 		callee = arg.Func
 	default:
 		base.Fatalf("expected ONAME or OCLOSURE node, got %+v", arg)
+	}
+	if callee.Op() != ir.ODCLFUNC {
+		base.Fatalf("expected ODCLFUNC node, got %+v", callee)
 	}
 	c.extraCalls[c.curfn] = append(c.extraCalls[c.curfn], nowritebarrierrecCall{callee, n.Pos()})
 }
@@ -133,7 +139,12 @@ func (c *nowritebarrierrecChecker) check() {
 	// q is the queue of ODCLFUNC Nodes to visit in BFS order.
 	var q ir.NameQueue
 
-	for _, fn := range typecheck.Target.Funcs {
+	for _, n := range typecheck.Target.Decls {
+		if n.Op() != ir.ODCLFUNC {
+			continue
+		}
+		fn := n.(*ir.Func)
+
 		symToFunc[fn.LSym] = fn
 
 		// Make nowritebarrierrec functions BFS roots.

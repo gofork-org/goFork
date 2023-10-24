@@ -9,7 +9,6 @@ import (
 
 	"golang.org/x/tools/go/analysis/unitchecker"
 
-	"golang.org/x/tools/go/analysis/passes/appends"
 	"golang.org/x/tools/go/analysis/passes/asmdecl"
 	"golang.org/x/tools/go/analysis/passes/assign"
 	"golang.org/x/tools/go/analysis/passes/atomic"
@@ -18,7 +17,6 @@ import (
 	"golang.org/x/tools/go/analysis/passes/cgocall"
 	"golang.org/x/tools/go/analysis/passes/composite"
 	"golang.org/x/tools/go/analysis/passes/copylock"
-	"golang.org/x/tools/go/analysis/passes/defers"
 	"golang.org/x/tools/go/analysis/passes/directive"
 	"golang.org/x/tools/go/analysis/passes/errorsas"
 	"golang.org/x/tools/go/analysis/passes/framepointer"
@@ -47,7 +45,6 @@ func main() {
 	objabi.AddVersionFlag()
 
 	unitchecker.Main(
-		appends.Analyzer,
 		asmdecl.Analyzer,
 		assign.Analyzer,
 		atomic.Analyzer,
@@ -56,7 +53,6 @@ func main() {
 		cgocall.Analyzer,
 		composite.Analyzer,
 		copylock.Analyzer,
-		defers.Analyzer,
 		directive.Analyzer,
 		errorsas.Analyzer,
 		framepointer.Analyzer,

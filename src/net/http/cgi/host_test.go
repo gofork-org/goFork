@@ -9,7 +9,6 @@ package cgi
 import (
 	"bufio"
 	"fmt"
-	"internal/testenv"
 	"io"
 	"net"
 	"net/http"
@@ -94,7 +93,7 @@ var cgiTested, cgiWorks bool
 func check(t *testing.T) {
 	if !cgiTested {
 		cgiTested = true
-		cgiWorks = testenv.Command(t, "./testdata/test.cgi").Run() == nil
+		cgiWorks = exec.Command("./testdata/test.cgi").Run() == nil
 	}
 	if !cgiWorks {
 		// No Perl on Windows, needed by test.cgi
@@ -463,7 +462,7 @@ func findPerl(t *testing.T) string {
 	}
 	perl, _ = filepath.Abs(perl)
 
-	cmd := testenv.Command(t, perl, "-e", "print 123")
+	cmd := exec.Command(perl, "-e", "print 123")
 	cmd.Env = []string{"PATH=/garbage"}
 	out, err := cmd.Output()
 	if err != nil || string(out) != "123" {

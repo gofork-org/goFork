@@ -18,8 +18,7 @@ type sigctxt struct {
 
 //go:nosplit
 //go:nowritebarrierrec
-func (c *sigctxt) regs() *ptregs      { return (*ucontext)(c.ctxt).uc_mcontext.regs }
-func (c *sigctxt) cregs() *sigcontext { return &(*ucontext)(c.ctxt).uc_mcontext }
+func (c *sigctxt) regs() *ptregs { return (*ucontext)(c.ctxt).uc_mcontext.regs }
 
 func (c *sigctxt) r0() uint64  { return c.regs().gpr[0] }
 func (c *sigctxt) r1() uint64  { return c.regs().gpr[1] }

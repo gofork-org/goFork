@@ -39,23 +39,16 @@ func check(t *testing.T, file string) {
 				continue
 			}
 
-			if _, frag, ok := bytes.Cut(line, []byte("ERROR HERE: ")); ok {
-				re, err := regexp.Compile(fmt.Sprintf(":%d:.*%s", i+1, frag))
-				if err != nil {
-					t.Errorf("Invalid regexp after `ERROR HERE: `: %#q", frag)
-					continue
-				}
-				errors = append(errors, re)
+			_, frag, ok := bytes.Cut(line, []byte("ERROR HERE: "))
+			if !ok {
+				continue
 			}
-
-			if _, frag, ok := bytes.Cut(line, []byte("ERROR MESSAGE: ")); ok {
-				re, err := regexp.Compile(string(frag))
-				if err != nil {
-					t.Errorf("Invalid regexp after `ERROR MESSAGE: `: %#q", frag)
-					continue
-				}
-				errors = append(errors, re)
+			re, err := regexp.Compile(fmt.Sprintf(":%d:.*%s", i+1, frag))
+			if err != nil {
+				t.Errorf("Invalid regexp after `ERROR HERE: `: %#q", frag)
+				continue
 			}
+			errors = append(errors, re)
 		}
 		if len(errors) == 0 {
 			t.Fatalf("cannot find ERROR HERE")
@@ -172,9 +165,4 @@ func TestMallocCrashesOnNil(t *testing.T) {
 		t.Logf("%#q:\n%s", strings.Join(cmd.Args, " "), out)
 		t.Fatalf("succeeded unexpectedly")
 	}
-}
-
-func TestNotMatchedCFunction(t *testing.T) {
-	file := "notmatchedcfunction.go"
-	check(t, file)
 }

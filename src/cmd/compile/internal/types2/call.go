@@ -47,7 +47,7 @@ func (check *Checker) funcInst(tsig *Signature, pos syntax.Pos, x *operand, inst
 	var targs []Type
 	var xlist []syntax.Expr
 	if inst != nil {
-		xlist = syntax.UnpackListExpr(inst.Index)
+		xlist = unpackExpr(inst.Index)
 		targs = check.typeList(xlist)
 		if targs == nil {
 			x.mode = invalid
@@ -258,7 +258,7 @@ func (check *Checker) callExpr(x *operand, call *syntax.CallExpr) exprKind {
 	var xlist []syntax.Expr
 	var targs []Type
 	if inst != nil {
-		xlist = syntax.UnpackListExpr(inst.Index)
+		xlist = unpackExpr(inst.Index)
 		targs = check.typeList(xlist)
 		if targs == nil {
 			check.use(call.ArgList...)
@@ -569,13 +569,6 @@ func (check *Checker) arguments(call *syntax.CallExpr, sig *Signature, targs []T
 		for i, arg := range args {
 			// generic arguments cannot have a defined (*Named) type - no need for underlying type below
 			if asig, _ := arg.typ.(*Signature); asig != nil && asig.TypeParams().Len() > 0 {
-				// The argument type is a generic function signature. This type is
-				// pointer-identical with (it's copied from) the type of the generic
-				// function argument and thus the function object.
-				// Before we change the type (type parameter renaming, below), make
-				// a clone of it as otherwise we implicitly modify the object's type
-				// (go.dev/issues/63260).
-				asig = clone(asig)
 				// Rename type parameters for cases like f(g, g); this gives each
 				// generic function argument a unique type identity (go.dev/issues/59956).
 				// TODO(gri) Consider only doing this if a function argument appears
@@ -665,7 +658,7 @@ var cgoPrefixes = [...]string{
 	"_Cmacro_", // function to evaluate the expanded expression
 }
 
-func (check *Checker) selector(x *operand, e *syntax.SelectorExpr, def *TypeName, wantType bool) {
+func (check *Checker) selector(x *operand, e *syntax.SelectorExpr, def *Named, wantType bool) {
 	// these must be declared before the "goto Error" statements
 	var (
 		obj      Object
@@ -766,8 +759,8 @@ func (check *Checker) selector(x *operand, e *syntax.SelectorExpr, def *TypeName
 	switch x.mode {
 	case typexpr:
 		// don't crash for "type T T.x" (was go.dev/issue/51509)
-		if def != nil && def.typ == x.typ {
-			check.cycleError([]Object{def})
+		if def != nil && x.typ == def {
+			check.cycleError([]Object{def.obj})
 			goto Error
 		}
 	case builtin:
@@ -799,7 +792,7 @@ func (check *Checker) selector(x *operand, e *syntax.SelectorExpr, def *TypeName
 	obj, index, indirect = LookupFieldOrMethod(x.typ, x.mode == variable, check.pkg, sel)
 	if obj == nil {
 		// Don't report another error if the underlying type was invalid (go.dev/issue/49541).
-		if !isValid(under(x.typ)) {
+		if under(x.typ) == Typ[Invalid] {
 			goto Error
 		}
 
@@ -960,7 +953,7 @@ func (check *Checker) useN(args []syntax.Expr, lhs bool) bool {
 func (check *Checker) use1(e syntax.Expr, lhs bool) bool {
 	var x operand
 	x.mode = value // anything but invalid
-	switch n := syntax.Unparen(e).(type) {
+	switch n := unparen(e).(type) {
 	case nil:
 		// nothing to do
 	case *syntax.Name:

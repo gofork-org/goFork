@@ -7,6 +7,7 @@ package net
 import "syscall"
 
 var (
+	errTimedout       = syscall.ETIMEDOUT
 	errOpNotSupported = syscall.EPLAN9
 
 	abortedConnRequestErrors []error

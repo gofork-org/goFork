@@ -119,7 +119,9 @@ func (m *matcher) fullName(c *common, subname string) (name string, ok, partial 
 func (m *matcher) clearSubNames() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	clear(m.subNames)
+	for key := range m.subNames {
+		delete(m.subNames, key)
+	}
 }
 
 func (m simpleMatch) matches(name []string, matchString func(pat, str string) (bool, error)) (ok, partial bool) {

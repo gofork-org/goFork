@@ -15,13 +15,9 @@ import (
 // Test that the generated code for the lock rank graph is up-to-date.
 func TestLockRankGenerated(t *testing.T) {
 	testenv.MustHaveGoRun(t)
-	cmd := testenv.CleanCmdEnv(testenv.Command(t, testenv.GoToolPath(t), "run", "mklockrank.go"))
-	want, err := cmd.Output()
+	want, err := testenv.CleanCmdEnv(exec.Command(testenv.GoToolPath(t), "run", "mklockrank.go")).CombinedOutput()
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
-			t.Fatalf("%v: %v\n%s", cmd, err, ee.Stderr)
-		}
-		t.Fatalf("%v: %v", cmd, err)
+		t.Fatal(err)
 	}
 	got, err := os.ReadFile("lockrank.go")
 	if err != nil {

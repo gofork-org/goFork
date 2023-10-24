@@ -3,6 +3,7 @@
 // license that can be found in the LICENSE file.
 
 //go:build (goexperiment.boringcrypto && !boringcrypto) || (!goexperiment.boringcrypto && boringcrypto)
+// +build goexperiment.boringcrypto,!boringcrypto !goexperiment.boringcrypto,boringcrypto
 
 package boring_test
 

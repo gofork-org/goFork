@@ -929,7 +929,3 @@ func TestMemoryLimitNoGCPercent(t *testing.T) {
 		t.Fatalf("expected %q, but got %q", want, got)
 	}
 }
-
-func TestMyGenericFunc(t *testing.T) {
-	runtime.MyGenericFunc[int]()
-}

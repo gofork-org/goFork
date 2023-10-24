@@ -106,7 +106,7 @@ func (c *IPConn) SyscallConn() (syscall.RawConn, error) {
 	if !c.ok() {
 		return nil, syscall.EINVAL
 	}
-	return newRawConn(c.fd), nil
+	return newRawConn(c.fd)
 }
 
 // ReadFromIP acts like ReadFrom but returns an IPAddr.

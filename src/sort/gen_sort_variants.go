@@ -3,6 +3,7 @@
 // license that can be found in the LICENSE file.
 
 //go:build ignore
+// +build ignore
 
 // This program is run via "go generate" (via a directive in sort.go)
 // to generate implementation variants of the underlying sorting algorithm.
@@ -67,50 +68,12 @@ type Variant struct {
 	Funcs template.FuncMap
 }
 
-var (
-	traditionalVariants = []Variant{
-		Variant{
-			Name:       "interface",
-			Path:       "zsortinterface.go",
-			Package:    "sort",
-			Imports:    "",
-			FuncSuffix: "",
-			TypeParam:  "",
-			ExtraParam: "",
-			ExtraArg:   "",
-			DataType:   "Interface",
-			Funcs: template.FuncMap{
-				"Less": func(name, i, j string) string {
-					return fmt.Sprintf("%s.Less(%s, %s)", name, i, j)
-				},
-				"Swap": func(name, i, j string) string {
-					return fmt.Sprintf("%s.Swap(%s, %s)", name, i, j)
-				},
-			},
-		},
-		Variant{
-			Name:       "func",
-			Path:       "zsortfunc.go",
-			Package:    "sort",
-			Imports:    "",
-			FuncSuffix: "_func",
-			TypeParam:  "",
-			ExtraParam: "",
-			ExtraArg:   "",
-			DataType:   "lessSwap",
-			Funcs: template.FuncMap{
-				"Less": func(name, i, j string) string {
-					return fmt.Sprintf("%s.Less(%s, %s)", name, i, j)
-				},
-				"Swap": func(name, i, j string) string {
-					return fmt.Sprintf("%s.Swap(%s, %s)", name, i, j)
-				},
-			},
-		},
-	}
+func main() {
+	genGeneric := flag.Bool("generic", false, "generate generic versions")
+	flag.Parse()
 
-	genericVariants = []Variant{
-		Variant{
+	if *genGeneric {
+		generate(&Variant{
 			Name:       "generic_ordered",
 			Path:       "zsortordered.go",
 			Package:    "slices",
@@ -128,8 +91,9 @@ var (
 					return fmt.Sprintf("%s[%s], %s[%s] = %s[%s], %s[%s]", name, i, name, j, name, j, name, i)
 				},
 			},
-		},
-		Variant{
+		})
+
+		generate(&Variant{
 			Name:       "generic_func",
 			Path:       "zsortanyfunc.go",
 			Package:    "slices",
@@ -146,65 +110,47 @@ var (
 					return fmt.Sprintf("%s[%s], %s[%s] = %s[%s], %s[%s]", name, i, name, j, name, j, name, i)
 				},
 			},
-		},
-	}
-
-	expVariants = []Variant{
-		Variant{
-			Name:       "exp_ordered",
-			Path:       "zsortordered.go",
-			Package:    "slices",
-			Imports:    "import \"golang.org/x/exp/constraints\"\n",
-			FuncSuffix: "Ordered",
-			TypeParam:  "[E constraints.Ordered]",
+		})
+	} else {
+		generate(&Variant{
+			Name:       "interface",
+			Path:       "zsortinterface.go",
+			Package:    "sort",
+			Imports:    "",
+			FuncSuffix: "",
+			TypeParam:  "",
 			ExtraParam: "",
 			ExtraArg:   "",
-			DataType:   "[]E",
+			DataType:   "Interface",
 			Funcs: template.FuncMap{
 				"Less": func(name, i, j string) string {
-					return fmt.Sprintf("cmpLess(%s[%s], %s[%s])", name, i, name, j)
+					return fmt.Sprintf("%s.Less(%s, %s)", name, i, j)
 				},
 				"Swap": func(name, i, j string) string {
-					return fmt.Sprintf("%s[%s], %s[%s] = %s[%s], %s[%s]", name, i, name, j, name, j, name, i)
+					return fmt.Sprintf("%s.Swap(%s, %s)", name, i, j)
 				},
 			},
-		},
-		Variant{
-			Name:       "exp_func",
-			Path:       "zsortanyfunc.go",
-			Package:    "slices",
-			FuncSuffix: "CmpFunc",
-			TypeParam:  "[E any]",
-			ExtraParam: ", cmp func(a, b E) int",
-			ExtraArg:   ", cmp",
-			DataType:   "[]E",
+		})
+
+		generate(&Variant{
+			Name:       "func",
+			Path:       "zsortfunc.go",
+			Package:    "sort",
+			Imports:    "",
+			FuncSuffix: "_func",
+			TypeParam:  "",
+			ExtraParam: "",
+			ExtraArg:   "",
+			DataType:   "lessSwap",
 			Funcs: template.FuncMap{
 				"Less": func(name, i, j string) string {
-					return fmt.Sprintf("(cmp(%s[%s], %s[%s]) < 0)", name, i, name, j)
+					return fmt.Sprintf("%s.Less(%s, %s)", name, i, j)
 				},
 				"Swap": func(name, i, j string) string {
-					return fmt.Sprintf("%s[%s], %s[%s] = %s[%s], %s[%s]", name, i, name, j, name, j, name, i)
+					return fmt.Sprintf("%s.Swap(%s, %s)", name, i, j)
 				},
 			},
-		},
-	}
-)
-
-func main() {
-	genGeneric := flag.Bool("generic", false, "generate generic versions")
-	genExp := flag.Bool("exp", false, "generate x/exp/slices versions")
-	flag.Parse()
-
-	var variants []Variant
-	if *genExp {
-		variants = expVariants
-	} else if *genGeneric {
-		variants = genericVariants
-	} else {
-		variants = traditionalVariants
-	}
-	for i := range variants {
-		generate(&variants[i])
+		})
 	}
 }
 

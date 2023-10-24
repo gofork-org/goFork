@@ -15,7 +15,7 @@ import (
 // defined in context.go, that supports registering AfterFuncs.
 type afterFuncContext struct {
 	mu         sync.Mutex
-	afterFuncs map[*byte]func()
+	afterFuncs map[*struct{}]func()
 	done       chan struct{}
 	err        error
 }
@@ -50,9 +50,9 @@ func (c *afterFuncContext) Value(key any) any {
 func (c *afterFuncContext) AfterFunc(f func()) func() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	k := new(byte)
+	k := &struct{}{}
 	if c.afterFuncs == nil {
-		c.afterFuncs = make(map[*byte]func())
+		c.afterFuncs = make(map[*struct{}]func())
 	}
 	c.afterFuncs[k] = f
 	return func() bool {
@@ -106,13 +106,11 @@ func TestCustomContextAfterFuncAfterFunc(t *testing.T) {
 
 func TestCustomContextAfterFuncUnregisterCancel(t *testing.T) {
 	ctx0 := &afterFuncContext{}
-	_, cancel1 := context.WithCancel(ctx0)
-	_, cancel2 := context.WithCancel(ctx0)
-	if got, want := len(ctx0.afterFuncs), 2; got != want {
+	_, cancel := context.WithCancel(ctx0)
+	if got, want := len(ctx0.afterFuncs), 1; got != want {
 		t.Errorf("after WithCancel(ctx0): ctx0 has %v afterFuncs, want %v", got, want)
 	}
-	cancel1()
-	cancel2()
+	cancel()
 	if got, want := len(ctx0.afterFuncs), 0; got != want {
 		t.Errorf("after canceling WithCancel(ctx0): ctx0 has %v afterFuncs, want %v", got, want)
 	}

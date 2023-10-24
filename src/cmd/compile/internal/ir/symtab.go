@@ -10,9 +10,7 @@ import (
 )
 
 // Syms holds known symbols.
-var Syms symsStruct
-
-type symsStruct struct {
+var Syms struct {
 	AssertE2I         *obj.LSym
 	AssertE2I2        *obj.LSym
 	AssertI2I         *obj.LSym
@@ -23,7 +21,6 @@ type symsStruct struct {
 	CgoCheckPtrWrite  *obj.LSym
 	CheckPtrAlignment *obj.LSym
 	Deferproc         *obj.LSym
-	Deferprocat       *obj.LSym
 	DeferprocStack    *obj.LSym
 	Deferreturn       *obj.LSym
 	Duffcopy          *obj.LSym
@@ -31,7 +28,6 @@ type symsStruct struct {
 	GCWriteBarrier    [8]*obj.LSym
 	Goschedguarded    *obj.LSym
 	Growslice         *obj.LSym
-	InterfaceSwitch   *obj.LSym
 	Memmove           *obj.LSym
 	Msanread          *obj.LSym
 	Msanwrite         *obj.LSym
@@ -44,13 +40,10 @@ type symsStruct struct {
 	PanicdottypeI     *obj.LSym
 	Panicnildottype   *obj.LSym
 	Panicoverflow     *obj.LSym
-	Racefuncenter     *obj.LSym
-	Racefuncexit      *obj.LSym
 	Raceread          *obj.LSym
 	Racereadrange     *obj.LSym
 	Racewrite         *obj.LSym
 	Racewriterange    *obj.LSym
-	TypeAssert        *obj.LSym
 	WBZero            *obj.LSym
 	WBMove            *obj.LSym
 	// Wasm

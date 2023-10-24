@@ -112,8 +112,8 @@ func (w *mockTransferWriter) Write(p []byte) (int, error) {
 }
 
 func TestTransferWriterWriteBodyReaderTypes(t *testing.T) {
-	fileType := reflect.TypeFor[*os.File]()
-	bufferType := reflect.TypeFor[*bytes.Buffer]()
+	fileType := reflect.TypeOf(&os.File{})
+	bufferType := reflect.TypeOf(&bytes.Buffer{})
 
 	nBytes := int64(1 << 10)
 	newFileFunc := func() (r io.Reader, done func(), err error) {
@@ -333,10 +333,6 @@ func TestParseContentLength(t *testing.T) {
 		wantErr error
 	}{
 		{
-			cl:      "",
-			wantErr: badStringError("invalid empty Content-Length", ""),
-		},
-		{
 			cl:      "3",
 			wantErr: nil,
 		},
@@ -360,7 +356,7 @@ func TestParseContentLength(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		if _, gotErr := parseContentLength([]string{tt.cl}); !reflect.DeepEqual(gotErr, tt.wantErr) {
+		if _, gotErr := parseContentLength(tt.cl); !reflect.DeepEqual(gotErr, tt.wantErr) {
 			t.Errorf("%q:\n\tgot=%v\n\twant=%v", tt.cl, gotErr, tt.wantErr)
 		}
 	}

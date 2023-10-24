@@ -44,7 +44,10 @@ import (
 // linebreaks. At the moment there is no easy way to know about
 // future (not yet interspersed) comments in this function.
 func (p *printer) linebreak(line, min int, ws whiteSpace, newSection bool) (nbreaks int) {
-	n := max(nlimit(line-p.pos.Line), min)
+	n := nlimit(line - p.pos.Line)
+	if n < min {
+		n = min
+	}
 	if n > 0 {
 		p.print(ws)
 		if newSection {
@@ -667,7 +670,9 @@ func walkBinary(e *ast.BinaryExpr) (has4, has5 bool, maxProblem int) {
 		h4, h5, mp := walkBinary(l)
 		has4 = has4 || h4
 		has5 = has5 || h5
-		maxProblem = max(maxProblem, mp)
+		if maxProblem < mp {
+			maxProblem = mp
+		}
 	}
 
 	switch r := e.Y.(type) {
@@ -680,7 +685,9 @@ func walkBinary(e *ast.BinaryExpr) (has4, has5 bool, maxProblem int) {
 		h4, h5, mp := walkBinary(r)
 		has4 = has4 || h4
 		has5 = has5 || h5
-		maxProblem = max(maxProblem, mp)
+		if maxProblem < mp {
+			maxProblem = mp
+		}
 
 	case *ast.StarExpr:
 		if e.Op == token.QUO { // `*/`
@@ -692,7 +699,9 @@ func walkBinary(e *ast.BinaryExpr) (has4, has5 bool, maxProblem int) {
 		case "/*", "&&", "&^":
 			maxProblem = 5
 		case "++", "--":
-			maxProblem = max(maxProblem, 4)
+			if maxProblem < 4 {
+				maxProblem = 4
+			}
 		}
 	}
 	return
@@ -974,24 +983,15 @@ func (p *printer) expr1(expr ast.Expr, prec1, depth int) {
 		if len(x.Args) > 1 {
 			depth++
 		}
-
-		// Conversions to literal function types or <-chan
-		// types require parentheses around the type.
-		paren := false
-		switch t := x.Fun.(type) {
-		case *ast.FuncType:
-			paren = true
-		case *ast.ChanType:
-			paren = t.Dir == ast.RECV
-		}
-		if paren {
+		var wasIndented bool
+		if _, ok := x.Fun.(*ast.FuncType); ok {
+			// conversions to literal function types require parentheses around the type
 			p.print(token.LPAREN)
-		}
-		wasIndented := p.possibleSelectorExpr(x.Fun, token.HighestPrec, depth)
-		if paren {
+			wasIndented = p.possibleSelectorExpr(x.Fun, token.HighestPrec, depth)
 			p.print(token.RPAREN)
+		} else {
+			wasIndented = p.possibleSelectorExpr(x.Fun, token.HighestPrec, depth)
 		}
-
 		p.setPos(x.Lparen)
 		p.print(token.LPAREN)
 		if x.Ellipsis.IsValid() {
@@ -1739,7 +1739,7 @@ func (p *printer) genDecl(d *ast.GenDecl) {
 	p.setPos(d.Pos())
 	p.print(d.Tok, blank)
 
-	if d.Lparen.IsValid() || len(d.Specs) != 1 {
+	if d.Lparen.IsValid() || len(d.Specs) > 1 {
 		// group of parenthesized declarations
 		p.setPos(d.Lparen)
 		p.print(token.LPAREN)

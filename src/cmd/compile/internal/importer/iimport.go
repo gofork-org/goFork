@@ -77,6 +77,8 @@ const (
 	unionType
 )
 
+const io_SeekCurrent = 1 // io.SeekCurrent (not defined in Go 1.4)
+
 // ImportData imports a package from the serialized package data
 // and returns the number of bytes consumed and a reference to the package.
 // If the export data version is not recognized or the format is otherwise
@@ -106,10 +108,10 @@ func ImportData(imports map[string]*types2.Package, data, path string) (pkg *typ
 	sLen := int64(r.uint64())
 	dLen := int64(r.uint64())
 
-	whence, _ := r.Seek(0, io.SeekCurrent)
+	whence, _ := r.Seek(0, io_SeekCurrent)
 	stringData := data[whence : whence+sLen]
 	declData := data[whence+sLen : whence+sLen+dLen]
-	r.Seek(sLen+dLen, io.SeekCurrent)
+	r.Seek(sLen+dLen, io_SeekCurrent)
 
 	p := iimporter{
 		exportVersion: version,

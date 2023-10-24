@@ -433,16 +433,7 @@ func PrintAssembly(w io.Writer, rpt *Report, obj plugin.ObjTool, maxFuncs int) e
 	}
 
 	if len(syms) == 0 {
-		// The symbol regexp case
-		if address == nil {
-			return fmt.Errorf("no matches found for regexp %s", o.Symbol)
-		}
-
-		// The address case
-		if len(symbols) == 0 {
-			return fmt.Errorf("no matches found for address 0x%x", *address)
-		}
-		return fmt.Errorf("address 0x%x found in binary, but the corresponding symbols do not have samples in the profile", *address)
+		return fmt.Errorf("no matches found for regexp: %s", o.Symbol)
 	}
 
 	// Correlate the symbols from the binary with the profile samples.
@@ -514,26 +505,22 @@ func PrintAssembly(w io.Writer, rpt *Report, obj plugin.ObjTool, maxFuncs int) e
 	return nil
 }
 
-// symbolsFromBinaries examines the binaries listed on the profile that have
-// associated samples, and returns the identified symbols matching rx.
+// symbolsFromBinaries examines the binaries listed on the profile
+// that have associated samples, and identifies symbols matching rx.
 func symbolsFromBinaries(prof *profile.Profile, g *graph.Graph, rx *regexp.Regexp, address *uint64, obj plugin.ObjTool) []*objSymbol {
-	// fileHasSamplesAndMatched is for optimization to speed up pprof: when later
-	// walking through the profile mappings, it will only examine the ones that have
-	// samples and are matched to the regexp.
-	fileHasSamplesAndMatched := make(map[string]bool)
+	hasSamples := make(map[string]bool)
+	// Only examine mappings that have samples that match the
+	// regexp. This is an optimization to speed up pprof.
 	for _, n := range g.Nodes {
 		if name := n.Info.PrintableName(); rx.MatchString(name) && n.Info.Objfile != "" {
-			fileHasSamplesAndMatched[n.Info.Objfile] = true
+			hasSamples[n.Info.Objfile] = true
 		}
 	}
 
 	// Walk all mappings looking for matching functions with samples.
 	var objSyms []*objSymbol
 	for _, m := range prof.Mapping {
-		// Skip the mapping if its file does not have samples or is not matched to
-		// the regexp (unless the regexp is an address and the mapping's range covers
-		// the address)
-		if !fileHasSamplesAndMatched[m.File] {
+		if !hasSamples[m.File] {
 			if address == nil || !(m.Start <= *address && *address <= m.Limit) {
 				continue
 			}

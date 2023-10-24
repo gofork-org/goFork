@@ -9,32 +9,30 @@ import (
 	"cmd/compile/internal/ir"
 	"cmd/compile/internal/types"
 	"cmd/internal/obj"
+	"cmd/internal/src"
 )
 
-// LookupRuntime returns a function or variable declared in
-// _builtin/runtime.go. If types_ is non-empty, successive occurrences
-// of the "any" placeholder type will be substituted.
-func LookupRuntime(name string, types_ ...*types.Type) *ir.Name {
+func LookupRuntime(name string) *ir.Name {
 	s := ir.Pkgs.Runtime.Lookup(name)
 	if s == nil || s.Def == nil {
 		base.Fatalf("LookupRuntime: can't find runtime.%s", name)
 	}
-	n := s.Def.(*ir.Name)
-	if len(types_) != 0 {
-		n = substArgTypes(n, types_...)
-	}
-	return n
+	return ir.AsNode(s.Def).(*ir.Name)
 }
 
 // SubstArgTypes substitutes the given list of types for
 // successive occurrences of the "any" placeholder in the
 // type syntax expression n.Type.
-func substArgTypes(old *ir.Name, types_ ...*types.Type) *ir.Name {
+// The result of SubstArgTypes MUST be assigned back to old, e.g.
+//
+//	n.Left = SubstArgTypes(n.Left, t1, t2)
+func SubstArgTypes(old *ir.Name, types_ ...*types.Type) *ir.Name {
 	for _, t := range types_ {
 		types.CalcSize(t)
 	}
-	n := ir.NewNameAt(old.Pos(), old.Sym(), types.SubstAny(old.Type(), &types_))
+	n := ir.NewNameAt(old.Pos(), old.Sym())
 	n.Class = old.Class
+	n.SetType(types.SubstAny(old.Type(), &types_))
 	n.Func = old.Func
 	if len(types_) > 0 {
 		base.Fatalf("SubstArgTypes: too many argument types")
@@ -77,9 +75,9 @@ func InitRuntime() {
 		typ := typs[d.typ]
 		switch d.tag {
 		case funcTag:
-			importfunc(sym, typ)
+			importfunc(src.NoXPos, sym, typ)
 		case varTag:
-			importvar(sym, typ)
+			importvar(src.NoXPos, sym, typ)
 		default:
 			base.Fatalf("unhandled declaration tag %v", d.tag)
 		}
@@ -113,9 +111,9 @@ func InitCoverage() {
 		typ := typs[d.typ]
 		switch d.tag {
 		case funcTag:
-			importfunc(sym, typ)
+			importfunc(src.NoXPos, sym, typ)
 		case varTag:
-			importvar(sym, typ)
+			importvar(src.NoXPos, sym, typ)
 		default:
 			base.Fatalf("unhandled declaration tag %v", d.tag)
 		}
@@ -130,5 +128,5 @@ func LookupCoverage(name string) *ir.Name {
 	if sym == nil {
 		base.Fatalf("LookupCoverage: can't find runtime/coverage.%s", name)
 	}
-	return sym.Def.(*ir.Name)
+	return ir.AsNode(sym.Def).(*ir.Name)
 }

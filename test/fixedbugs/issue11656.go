@@ -17,5 +17,6 @@
 // able to unwind past that point.
 
 //go:build !windows && !wasm && !gccgo
+// +build !windows,!wasm,!gccgo
 
 package ignored

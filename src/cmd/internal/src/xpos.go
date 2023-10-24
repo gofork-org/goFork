@@ -124,40 +124,25 @@ type PosTable struct {
 // XPos returns the corresponding XPos for the given pos,
 // adding pos to t if necessary.
 func (t *PosTable) XPos(pos Pos) XPos {
-	return XPos{t.baseIndex(pos.base), pos.lico}
-}
-
-func (t *PosTable) baseIndex(base *PosBase) int32 {
-	if base == nil {
-		return 0
-	}
-
-	if i, ok := t.indexMap[base]; ok {
-		return int32(i)
-	}
-
-	if base.fileIndex >= 0 {
-		panic("PosBase already registered with a PosTable")
-	}
-
-	if t.indexMap == nil {
+	m := t.indexMap
+	if m == nil {
+		// Create new list and map and populate with nil
+		// base so that NoPos always gets index 0.
 		t.baseList = append(t.baseList, nil)
-		t.indexMap = make(map[*PosBase]int)
+		m = map[*PosBase]int{nil: 0}
+		t.indexMap = m
 		t.nameMap = make(map[string]int)
 	}
-
-	i := len(t.baseList)
-	t.indexMap[base] = i
-	t.baseList = append(t.baseList, base)
-
-	fileIndex, ok := t.nameMap[base.absFilename]
+	i, ok := m[pos.base]
 	if !ok {
-		fileIndex = len(t.nameMap)
-		t.nameMap[base.absFilename] = fileIndex
+		i = len(t.baseList)
+		t.baseList = append(t.baseList, pos.base)
+		t.indexMap[pos.base] = i
+		if _, ok := t.nameMap[pos.base.symFilename]; !ok {
+			t.nameMap[pos.base.symFilename] = len(t.nameMap)
+		}
 	}
-	base.fileIndex = fileIndex
-
-	return int32(i)
+	return XPos{int32(i), pos.lico}
 }
 
 // Pos returns the corresponding Pos for the given p.
@@ -168,6 +153,14 @@ func (t *PosTable) Pos(p XPos) Pos {
 		base = t.baseList[p.index]
 	}
 	return Pos{base, p.lico}
+}
+
+// FileIndex returns the index of the given filename(symbol) in the PosTable, or -1 if not found.
+func (t *PosTable) FileIndex(filename string) int {
+	if v, ok := t.nameMap[filename]; ok {
+		return v
+	}
+	return -1
 }
 
 // FileTable returns a slice of all files used to build this package.

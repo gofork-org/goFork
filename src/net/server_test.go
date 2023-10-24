@@ -2,10 +2,11 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !js && !wasip1
+
 package net
 
 import (
-	"fmt"
 	"os"
 	"testing"
 )
@@ -250,80 +251,65 @@ var udpServerTests = []struct {
 
 func TestUDPServer(t *testing.T) {
 	for i, tt := range udpServerTests {
-		i, tt := i, tt
-		t.Run(fmt.Sprint(i), func(t *testing.T) {
-			if !testableListenArgs(tt.snet, tt.saddr, tt.taddr) {
-				t.Skipf("skipping %s %s<-%s test", tt.snet, tt.saddr, tt.taddr)
-			}
-			t.Logf("%s %s<-%s", tt.snet, tt.saddr, tt.taddr)
+		if !testableListenArgs(tt.snet, tt.saddr, tt.taddr) {
+			t.Logf("skipping %s test", tt.snet+" "+tt.saddr+"<-"+tt.taddr)
+			continue
+		}
 
-			c1, err := ListenPacket(tt.snet, tt.saddr)
+		c1, err := ListenPacket(tt.snet, tt.saddr)
+		if err != nil {
+			if perr := parseDialError(err); perr != nil {
+				t.Error(perr)
+			}
+			t.Fatal(err)
+		}
+
+		ls := (&packetListener{PacketConn: c1}).newLocalServer()
+		defer ls.teardown()
+		tpch := make(chan error, 1)
+		handler := func(ls *localPacketServer, c PacketConn) { packetTransponder(c, tpch) }
+		if err := ls.buildup(handler); err != nil {
+			t.Fatal(err)
+		}
+
+		trch := make(chan error, 1)
+		_, port, err := SplitHostPort(ls.PacketConn.LocalAddr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tt.dial {
+			d := Dialer{Timeout: someTimeout}
+			c2, err := d.Dial(tt.tnet, JoinHostPort(tt.taddr, port))
 			if err != nil {
 				if perr := parseDialError(err); perr != nil {
 					t.Error(perr)
 				}
 				t.Fatal(err)
 			}
-
-			ls := (&packetListener{PacketConn: c1}).newLocalServer()
-			defer ls.teardown()
-			tpch := make(chan error, 1)
-			handler := func(ls *localPacketServer, c PacketConn) { packetTransponder(c, tpch) }
-			if err := ls.buildup(handler); err != nil {
+			defer c2.Close()
+			go transceiver(c2, []byte("UDP SERVER TEST"), trch)
+		} else {
+			c2, err := ListenPacket(tt.tnet, JoinHostPort(tt.taddr, "0"))
+			if err != nil {
+				if perr := parseDialError(err); perr != nil {
+					t.Error(perr)
+				}
 				t.Fatal(err)
 			}
-
-			trch := make(chan error, 1)
-			_, port, err := SplitHostPort(ls.PacketConn.LocalAddr().String())
+			defer c2.Close()
+			dst, err := ResolveUDPAddr(tt.tnet, JoinHostPort(tt.taddr, port))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if tt.dial {
-				d := Dialer{Timeout: someTimeout}
-				c2, err := d.Dial(tt.tnet, JoinHostPort(tt.taddr, port))
-				if err != nil {
-					if perr := parseDialError(err); perr != nil {
-						t.Error(perr)
-					}
-					t.Fatal(err)
-				}
-				defer c2.Close()
-				go transceiver(c2, []byte("UDP SERVER TEST"), trch)
-			} else {
-				c2, err := ListenPacket(tt.tnet, JoinHostPort(tt.taddr, "0"))
-				if err != nil {
-					if perr := parseDialError(err); perr != nil {
-						t.Error(perr)
-					}
-					t.Fatal(err)
-				}
-				defer c2.Close()
-				dst, err := ResolveUDPAddr(tt.tnet, JoinHostPort(tt.taddr, port))
-				if err != nil {
-					t.Fatal(err)
-				}
-				go packetTransceiver(c2, []byte("UDP SERVER TEST"), dst, trch)
-			}
+			go packetTransceiver(c2, []byte("UDP SERVER TEST"), dst, trch)
+		}
 
-			for trch != nil || tpch != nil {
-				select {
-				case err, ok := <-trch:
-					if !ok {
-						trch = nil
-					}
-					if err != nil {
-						t.Errorf("client: %v", err)
-					}
-				case err, ok := <-tpch:
-					if !ok {
-						tpch = nil
-					}
-					if err != nil {
-						t.Errorf("server: %v", err)
-					}
-				}
-			}
-		})
+		for err := range trch {
+			t.Errorf("#%d: %v", i, err)
+		}
+		for err := range tpch {
+			t.Errorf("#%d: %v", i, err)
+		}
 	}
 }
 
@@ -340,73 +326,58 @@ func TestUnixgramServer(t *testing.T) {
 	}
 
 	for i, tt := range unixgramServerTests {
-		i, tt := i, tt
-		t.Run(fmt.Sprint(i), func(t *testing.T) {
-			if !testableListenArgs("unixgram", tt.saddr, "") {
-				t.Skipf("skipping unixgram %s<-%s test", tt.saddr, tt.caddr)
-			}
-			t.Logf("unixgram %s<-%s", tt.saddr, tt.caddr)
+		if !testableListenArgs("unixgram", tt.saddr, "") {
+			t.Logf("skipping %s test", "unixgram "+tt.saddr+"<-"+tt.caddr)
+			continue
+		}
 
-			c1, err := ListenPacket("unixgram", tt.saddr)
+		c1, err := ListenPacket("unixgram", tt.saddr)
+		if err != nil {
+			if perr := parseDialError(err); perr != nil {
+				t.Error(perr)
+			}
+			t.Fatal(err)
+		}
+
+		ls := (&packetListener{PacketConn: c1}).newLocalServer()
+		defer ls.teardown()
+		tpch := make(chan error, 1)
+		handler := func(ls *localPacketServer, c PacketConn) { packetTransponder(c, tpch) }
+		if err := ls.buildup(handler); err != nil {
+			t.Fatal(err)
+		}
+
+		trch := make(chan error, 1)
+		if tt.dial {
+			d := Dialer{Timeout: someTimeout, LocalAddr: &UnixAddr{Net: "unixgram", Name: tt.caddr}}
+			c2, err := d.Dial("unixgram", ls.PacketConn.LocalAddr().String())
 			if err != nil {
 				if perr := parseDialError(err); perr != nil {
 					t.Error(perr)
 				}
 				t.Fatal(err)
 			}
-
-			ls := (&packetListener{PacketConn: c1}).newLocalServer()
-			defer ls.teardown()
-			tpch := make(chan error, 1)
-			handler := func(ls *localPacketServer, c PacketConn) { packetTransponder(c, tpch) }
-			if err := ls.buildup(handler); err != nil {
+			defer os.Remove(c2.LocalAddr().String())
+			defer c2.Close()
+			go transceiver(c2, []byte(c2.LocalAddr().String()), trch)
+		} else {
+			c2, err := ListenPacket("unixgram", tt.caddr)
+			if err != nil {
+				if perr := parseDialError(err); perr != nil {
+					t.Error(perr)
+				}
 				t.Fatal(err)
 			}
+			defer os.Remove(c2.LocalAddr().String())
+			defer c2.Close()
+			go packetTransceiver(c2, []byte("UNIXGRAM SERVER TEST"), ls.PacketConn.LocalAddr(), trch)
+		}
 
-			trch := make(chan error, 1)
-			if tt.dial {
-				d := Dialer{Timeout: someTimeout, LocalAddr: &UnixAddr{Net: "unixgram", Name: tt.caddr}}
-				c2, err := d.Dial("unixgram", ls.PacketConn.LocalAddr().String())
-				if err != nil {
-					if perr := parseDialError(err); perr != nil {
-						t.Error(perr)
-					}
-					t.Fatal(err)
-				}
-				defer os.Remove(c2.LocalAddr().String())
-				defer c2.Close()
-				go transceiver(c2, []byte(c2.LocalAddr().String()), trch)
-			} else {
-				c2, err := ListenPacket("unixgram", tt.caddr)
-				if err != nil {
-					if perr := parseDialError(err); perr != nil {
-						t.Error(perr)
-					}
-					t.Fatal(err)
-				}
-				defer os.Remove(c2.LocalAddr().String())
-				defer c2.Close()
-				go packetTransceiver(c2, []byte("UNIXGRAM SERVER TEST"), ls.PacketConn.LocalAddr(), trch)
-			}
-
-			for trch != nil || tpch != nil {
-				select {
-				case err, ok := <-trch:
-					if !ok {
-						trch = nil
-					}
-					if err != nil {
-						t.Errorf("client: %v", err)
-					}
-				case err, ok := <-tpch:
-					if !ok {
-						tpch = nil
-					}
-					if err != nil {
-						t.Errorf("server: %v", err)
-					}
-				}
-			}
-		})
+		for err := range trch {
+			t.Errorf("#%d: %v", i, err)
+		}
+		for err := range tpch {
+			t.Errorf("#%d: %v", i, err)
+		}
 	}
 }

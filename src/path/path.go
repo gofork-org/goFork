@@ -8,10 +8,8 @@
 // The path package should only be used for paths separated by forward
 // slashes, such as the paths in URLs. This package does not deal with
 // Windows paths with drive letters or backslashes; to manipulate
-// operating system paths, use the [path/filepath] package.
+// operating system paths, use the path/filepath package.
 package path
-
-import "internal/bytealg"
 
 // A lazybuf is a lazily constructed path buffer.
 // It supports append, reading previously appended bytes,
@@ -137,13 +135,22 @@ func Clean(path string) string {
 	return out.string()
 }
 
+// lastSlash(s) is strings.LastIndex(s, "/") but we can't import strings.
+func lastSlash(s string) int {
+	i := len(s) - 1
+	for i >= 0 && s[i] != '/' {
+		i--
+	}
+	return i
+}
+
 // Split splits path immediately following the final slash,
 // separating it into a directory and file name component.
 // If there is no slash in path, Split returns an empty dir and
 // file set to path.
 // The returned values have the property that path = dir+file.
 func Split(path string) (dir, file string) {
-	i := bytealg.LastIndexByteString(path, '/')
+	i := lastSlash(path)
 	return path[:i+1], path[i+1:]
 }
 
@@ -198,7 +205,7 @@ func Base(path string) string {
 		path = path[0 : len(path)-1]
 	}
 	// Find the last element
-	if i := bytealg.LastIndexByteString(path, '/'); i >= 0 {
+	if i := lastSlash(path); i >= 0 {
 		path = path[i+1:]
 	}
 	// If empty now, it had only slashes.

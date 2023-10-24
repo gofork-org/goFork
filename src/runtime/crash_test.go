@@ -24,21 +24,10 @@ import (
 var toRemove []string
 
 func TestMain(m *testing.M) {
-	_, coreErrBefore := os.Stat("core")
-
 	status := m.Run()
 	for _, file := range toRemove {
 		os.RemoveAll(file)
 	}
-
-	_, coreErrAfter := os.Stat("core")
-	if coreErrBefore != nil && coreErrAfter == nil {
-		fmt.Fprintln(os.Stderr, "runtime.test: some test left a core file behind")
-		if status == 0 {
-			status = 1
-		}
-	}
-
 	os.Exit(status)
 }
 
@@ -777,7 +766,7 @@ func init() {
 
 func TestRuntimePanic(t *testing.T) {
 	testenv.MustHaveExec(t)
-	cmd := testenv.CleanCmdEnv(exec.Command(os.Args[0], "-test.run=^TestRuntimePanic$"))
+	cmd := testenv.CleanCmdEnv(exec.Command(os.Args[0], "-test.run=TestRuntimePanic"))
 	cmd.Env = append(cmd.Env, "GO_TEST_RUNTIME_PANIC=1")
 	out, err := cmd.CombinedOutput()
 	t.Logf("%s", out)
@@ -792,12 +781,13 @@ func TestRuntimePanic(t *testing.T) {
 func TestG0StackOverflow(t *testing.T) {
 	testenv.MustHaveExec(t)
 
-	if runtime.GOOS == "ios" {
-		testenv.SkipFlaky(t, 62671)
+	switch runtime.GOOS {
+	case "android", "darwin", "dragonfly", "freebsd", "ios", "linux", "netbsd", "openbsd":
+		t.Skipf("g0 stack is wrong on pthread platforms (see golang.org/issue/26061)")
 	}
 
 	if os.Getenv("TEST_G0_STACK_OVERFLOW") != "1" {
-		cmd := testenv.CleanCmdEnv(exec.Command(os.Args[0], "-test.run=^TestG0StackOverflow$", "-test.v"))
+		cmd := testenv.CleanCmdEnv(exec.Command(os.Args[0], "-test.run=TestG0StackOverflow", "-test.v"))
 		cmd.Env = append(cmd.Env, "TEST_G0_STACK_OVERFLOW=1")
 		out, err := cmd.CombinedOutput()
 		// Don't check err since it's expected to crash.
@@ -877,14 +867,5 @@ func TestPanicOnUnsafeSlice(t *testing.T) {
 	want := "panic: runtime error: unsafe.Slice: ptr is nil and len is not zero"
 	if !strings.Contains(output, want) {
 		t.Errorf("output does not contain %q:\n%s", want, output)
-	}
-}
-
-func TestNetpollWaiters(t *testing.T) {
-	t.Parallel()
-	output := runTestProg(t, "testprognet", "NetpollWaiters")
-	want := "OK\n"
-	if output != want {
-		t.Fatalf("output is not %q\n%s", want, output)
 	}
 }

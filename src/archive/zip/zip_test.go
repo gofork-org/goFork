@@ -198,6 +198,13 @@ func (r *rleBuffer) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
+func min(x, y int64) int64 {
+	if x < y {
+		return x
+	}
+	return y
+}
+
 func memset(a []byte, b byte) {
 	if len(a) == 0 {
 		return
@@ -590,7 +597,7 @@ func testZip64(t testing.TB, size int64) *rleBuffer {
 	}
 
 	// read back zip file and check that we get to the end of it
-	r, err := NewReader(buf, buf.Size())
+	r, err := NewReader(buf, int64(buf.Size()))
 	if err != nil {
 		t.Fatal("reader:", err)
 	}

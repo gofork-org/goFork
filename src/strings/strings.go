@@ -83,7 +83,7 @@ func LastIndex(s, substr string) int {
 	case n == 0:
 		return len(s)
 	case n == 1:
-		return bytealg.LastIndexByteString(s, substr[0])
+		return LastIndexByte(s, substr[0])
 	case n == len(s):
 		if substr == s {
 			return 0
@@ -227,7 +227,12 @@ func LastIndexAny(s, chars string) int {
 
 // LastIndexByte returns the index of the last instance of c in s, or -1 if c is not present in s.
 func LastIndexByte(s string, c byte) int {
-	return bytealg.LastIndexByteString(s, c)
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
 }
 
 // Generic split: splits after each instance of sep,
@@ -272,7 +277,7 @@ func genSplit(s, sep string, sepSave, n int) []string {
 //	n < 0: all substrings
 //
 // Edge cases for s and sep (for example, empty strings) are handled
-// as described in the documentation for [Split].
+// as described in the documentation for Split.
 //
 // To split around the first instance of a separator, see Cut.
 func SplitN(s, sep string, n int) []string { return genSplit(s, sep, 0, n) }
@@ -301,7 +306,7 @@ func SplitAfterN(s, sep string, n int) []string {
 // If sep is empty, Split splits after each UTF-8 sequence. If both s
 // and sep are empty, Split returns an empty slice.
 //
-// It is equivalent to [SplitN] with a count of -1.
+// It is equivalent to SplitN with a count of -1.
 //
 // To split around the first instance of a separator, see Cut.
 func Split(s, sep string) []string { return genSplit(s, sep, 0, -1) }
@@ -315,7 +320,7 @@ func Split(s, sep string) []string { return genSplit(s, sep, 0, -1) }
 // If sep is empty, SplitAfter splits after each UTF-8 sequence. If
 // both s and sep are empty, SplitAfter returns an empty slice.
 //
-// It is equivalent to [SplitAfterN] with a count of -1.
+// It is equivalent to SplitAfterN with a count of -1.
 func SplitAfter(s, sep string) []string {
 	return genSplit(s, sep, len(sep), -1)
 }
@@ -458,12 +463,12 @@ func Join(elems []string, sep string) string {
 	return b.String()
 }
 
-// HasPrefix reports whether the string s begins with prefix.
+// HasPrefix tests whether the string s begins with prefix.
 func HasPrefix(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[0:len(prefix)] == prefix
 }
 
-// HasSuffix reports whether the string s ends with suffix.
+// HasSuffix tests whether the string s ends with suffix.
 func HasSuffix(s, suffix string) bool {
 	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
 }
@@ -904,7 +909,7 @@ func Trim(s, cutset string) string {
 // TrimLeft returns a slice of the string s with all leading
 // Unicode code points contained in cutset removed.
 //
-// To remove a prefix, use [TrimPrefix] instead.
+// To remove a prefix, use TrimPrefix instead.
 func TrimLeft(s, cutset string) string {
 	if s == "" || cutset == "" {
 		return s
@@ -952,7 +957,7 @@ func trimLeftUnicode(s, cutset string) string {
 // TrimRight returns a slice of the string s, with all trailing
 // Unicode code points contained in cutset removed.
 //
-// To remove a suffix, use [TrimSuffix] instead.
+// To remove a suffix, use TrimSuffix instead.
 func TrimRight(s, cutset string) string {
 	if s == "" || cutset == "" {
 		return s

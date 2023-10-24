@@ -9,6 +9,8 @@
 #include "time_windows.h"
 
 TEXT time·now(SB),NOSPLIT,$0-20
+	CMPB	runtime·useQPCTime(SB), $0
+	JNE	useQPC
 loop:
 	MOVL	(_INTERRUPT_TIME+time_hi1), AX
 	MOVL	(_INTERRUPT_TIME+time_lo), CX
@@ -76,4 +78,7 @@ wall:
 	ADCL	$0, DX
 	MOVL	AX, sec+0(FP)
 	MOVL	DX, sec+4(FP)
+	RET
+useQPC:
+	JMP	runtime·nowQPC(SB)
 	RET

@@ -64,16 +64,16 @@ func TestErroneous(t *testing.T) {
 	}
 
 	testcats := []struct {
-		allowABI bool
-		tests    []errtest
+		compilingRuntime bool
+		tests            []errtest
 	}{
 		{
-			allowABI: false,
-			tests:    nonRuntimeTests,
+			compilingRuntime: false,
+			tests:            nonRuntimeTests,
 		},
 		{
-			allowABI: true,
-			tests:    runtimeTests,
+			compilingRuntime: true,
+			tests:            runtimeTests,
 		},
 	}
 
@@ -85,7 +85,7 @@ func TestErroneous(t *testing.T) {
 
 	for _, cat := range testcats {
 		for _, test := range cat.tests {
-			parser.allowABI = cat.allowABI
+			parser.compilingRuntime = cat.compilingRuntime
 			parser.errorCount = 0
 			parser.lineNum++
 			if !parser.pseudo(test.pseudo, tokenize(test.operands)) {

@@ -49,13 +49,16 @@ type bottomUpVisitor struct {
 // If recursive is false, the list consists of only a single function and its closures.
 // If recursive is true, the list may still contain only a single function,
 // if that function is itself recursive.
-func VisitFuncsBottomUp(list []*Func, analyze func(list []*Func, recursive bool)) {
+func VisitFuncsBottomUp(list []Node, analyze func(list []*Func, recursive bool)) {
 	var v bottomUpVisitor
 	v.analyze = analyze
 	v.nodeID = make(map[*Func]uint32)
 	for _, n := range list {
-		if !n.IsHiddenClosure() {
-			v.visit(n)
+		if n.Op() == ODCLFUNC {
+			n := n.(*Func)
+			if !n.IsHiddenClosure() {
+				v.visit(n)
+			}
 		}
 	}
 }

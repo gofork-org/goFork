@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !js && !wasip1
+
 package net
 
 import (
@@ -337,7 +339,6 @@ func newLocalPacketListener(t testing.TB, network string, lcOpt ...*ListenConfig
 		return c
 	}
 
-	t.Helper()
 	switch network {
 	case "udp":
 		if supportsIPv4() {
@@ -358,6 +359,7 @@ func newLocalPacketListener(t testing.TB, network string, lcOpt ...*ListenConfig
 		return listenPacket(network, testUnixAddr(t))
 	}
 
+	t.Helper()
 	t.Fatalf("%s is not supported", network)
 	return nil
 }

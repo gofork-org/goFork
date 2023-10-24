@@ -51,7 +51,7 @@ func staticCall(call *ir.CallExpr) {
 	if call.Op() != ir.OCALLINTER {
 		return
 	}
-	sel := call.Fun.(*ir.SelectorExpr)
+	sel := call.X.(*ir.SelectorExpr)
 	r := ir.StaticValue(sel.X)
 	if r.Op() != ir.OCONVIFACE {
 		return
@@ -113,23 +113,29 @@ func staticCall(call *ir.CallExpr) {
 
 	dt := ir.NewTypeAssertExpr(sel.Pos(), sel.X, nil)
 	dt.SetType(typ)
-	x := typecheck.XDotMethod(sel.Pos(), dt, sel.Sel, true)
+	x := typecheck.Callee(ir.NewSelectorExpr(sel.Pos(), ir.OXDOT, dt, sel.Sel))
 	switch x.Op() {
 	case ir.ODOTMETH:
+		x := x.(*ir.SelectorExpr)
 		if base.Flag.LowerM != 0 {
 			base.WarnfAt(call.Pos(), "devirtualizing %v to %v", sel, typ)
 		}
 		call.SetOp(ir.OCALLMETH)
-		call.Fun = x
+		call.X = x
 	case ir.ODOTINTER:
 		// Promoted method from embedded interface-typed field (#42279).
+		x := x.(*ir.SelectorExpr)
 		if base.Flag.LowerM != 0 {
 			base.WarnfAt(call.Pos(), "partially devirtualizing %v to %v", sel, typ)
 		}
 		call.SetOp(ir.OCALLINTER)
-		call.Fun = x
+		call.X = x
 	default:
-		base.FatalfAt(call.Pos(), "failed to devirtualize %v (%v)", x, x.Op())
+		// TODO(mdempsky): Turn back into Fatalf after more testing.
+		if base.Flag.LowerM != 0 {
+			base.WarnfAt(call.Pos(), "failed to devirtualize %v (%v)", x, x.Op())
+		}
+		return
 	}
 
 	// Duplicated logic from typecheck for function call return
@@ -142,9 +148,9 @@ func staticCall(call *ir.CallExpr) {
 	switch ft := x.Type(); ft.NumResults() {
 	case 0:
 	case 1:
-		call.SetType(ft.Result(0).Type)
+		call.SetType(ft.Results().Field(0).Type)
 	default:
-		call.SetType(ft.ResultsTuple())
+		call.SetType(ft.Results())
 	}
 
 	// Desugar OCALLMETH, if we created one (#57309).

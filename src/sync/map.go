@@ -461,8 +461,7 @@ func (m *Map) Range(f func(key, value any) bool) {
 		read = m.loadReadOnly()
 		if read.amended {
 			read = readOnly{m: m.dirty}
-			copyRead := read
-			m.read.Store(&copyRead)
+			m.read.Store(&read)
 			m.dirty = nil
 			m.misses = 0
 		}

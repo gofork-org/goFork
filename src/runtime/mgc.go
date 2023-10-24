@@ -135,12 +135,9 @@ import (
 )
 
 const (
-	_DebugGC      = 0
-	_FinBlockSize = 4 * 1024
-
-	// concurrentSweep is a debug flag. Disabling this flag
-	// ensures all spans are swept while the world is stopped.
-	concurrentSweep = true
+	_DebugGC         = 0
+	_ConcurrentSweep = true
+	_FinBlockSize    = 4 * 1024
 
 	// debugScanConservative enables debug logging for stack
 	// frames that are scanned conservatively.
@@ -476,6 +473,7 @@ func GC() {
 	// as part of tests and benchmarks to get the system into a
 	// relatively stable and isolated state.
 	for work.cycles.Load() == n+1 && sweepone() != ^uintptr(0) {
+		sweep.nbgsweep++
 		Gosched()
 	}
 
@@ -574,6 +572,10 @@ func (t gcTrigger) test() bool {
 	}
 	switch t.kind {
 	case gcTriggerHeap:
+		// Non-atomic access to gcController.heapLive for performance. If
+		// we are going to trigger on this, this thread just
+		// atomically wrote gcController.heapLive anyway and we'll see our
+		// own write.
 		trigger, _ := gcController.trigger()
 		return gcController.heapLive.Load() >= trigger
 	case gcTriggerTime:
@@ -619,6 +621,7 @@ func gcStart(trigger gcTrigger) {
 	// We check the transition condition continuously here in case
 	// this G gets delayed in to the next GC cycle.
 	for trigger.test() && sweepone() != ^uintptr(0) {
+		sweep.nbgsweep++
 	}
 
 	// Perform GC initialization and the sweep termination
@@ -684,7 +687,7 @@ func gcStart(trigger gcTrigger) {
 		finishsweep_m()
 	})
 
-	// clearpools before we start the GC. If we wait the memory will not be
+	// clearpools before we start the GC. If we wait they memory will not be
 	// reclaimed until the next GC cycle.
 	clearpools()
 
@@ -716,11 +719,11 @@ func gcStart(trigger gcTrigger) {
 	// enabled because they must be enabled before
 	// any non-leaf heap objects are marked. Since
 	// allocations are blocked until assists can
-	// happen, we want to enable assists as early as
+	// happen, we want enable assists as early as
 	// possible.
 	setGCPhase(_GCmark)
 
-	gcBgMarkPrepare() // Must happen before assists are enabled.
+	gcBgMarkPrepare() // Must happen before assist enable.
 	gcMarkRootPrepare()
 
 	// Mark all active tinyalloc blocks. Since we're
@@ -966,7 +969,6 @@ func gcMarkTermination() {
 		// before continuing.
 	})
 
-	var stwSwept bool
 	systemstack(func() {
 		work.heap2 = work.bytesMarked
 		if debug.gccheckmark > 0 {
@@ -985,7 +987,7 @@ func gcMarkTermination() {
 
 		// marking is complete so we can turn the write barrier off
 		setGCPhase(_GCoff)
-		stwSwept = gcSweep(work.mode)
+		gcSweep(work.mode)
 	})
 
 	mp.traceback = 0
@@ -1045,6 +1047,10 @@ func gcMarkTermination() {
 	// Reset idle time stat.
 	sched.idleTime.Store(0)
 
+	// Reset sweep state.
+	sweep.nbgsweep = 0
+	sweep.npausesweep = 0
+
 	if work.userForced {
 		memstats.numforcedgc++
 	}
@@ -1073,19 +1079,9 @@ func gcMarkTermination() {
 	// Those aren't tracked in any sweep lists, so we need to
 	// count them against sweep completion until we ensure all
 	// those spans have been forced out.
-	//
-	// If gcSweep fully swept the heap (for example if the sweep
-	// is not concurrent due to a GODEBUG setting), then we expect
-	// the sweepLocker to be invalid, since sweeping is done.
-	//
-	// N.B. Below we might duplicate some work from gcSweep; this is
-	// fine as all that work is idempotent within a GC cycle, and
-	// we're still holding worldsema so a new cycle can't start.
 	sl := sweep.active.begin()
-	if !stwSwept && !sl.valid {
+	if !sl.valid {
 		throw("failed to set sweep barrier")
-	} else if stwSwept && sl.valid {
-		throw("non-concurrent sweep failed to drain all sweep queues")
 	}
 
 	systemstack(func() { startTheWorldWithSema() })
@@ -1127,15 +1123,9 @@ func gcMarkTermination() {
 			pp.pinnerCache = nil
 		})
 	})
-	if sl.valid {
-		// Now that we've swept stale spans in mcaches, they don't
-		// count against unswept spans.
-		//
-		// Note: this sweepLocker may not be valid if sweeping had
-		// already completed during the STW. See the corresponding
-		// begin() call that produced sl.
-		sweep.active.end(sl)
-	}
+	// Now that we've swept stale spans in mcaches, they don't
+	// count against unswept spans.
+	sweep.active.end(sl)
 
 	// Print gctrace before dropping worldsema. As soon as we drop
 	// worldsema another cycle could start and smash the stats
@@ -1373,7 +1363,7 @@ func gcBgMarkWorker() {
 			default:
 				throw("gcBgMarkWorker: unexpected gcMarkWorkerMode")
 			case gcMarkWorkerDedicatedMode:
-				gcDrainMarkWorkerDedicated(&pp.gcw, true)
+				gcDrain(&pp.gcw, gcDrainUntilPreempt|gcDrainFlushBgCredit)
 				if gp.preempt {
 					// We were preempted. This is
 					// a useful signal to kick
@@ -1388,11 +1378,11 @@ func gcBgMarkWorker() {
 				}
 				// Go back to draining, this time
 				// without preemption.
-				gcDrainMarkWorkerDedicated(&pp.gcw, false)
+				gcDrain(&pp.gcw, gcDrainFlushBgCredit)
 			case gcMarkWorkerFractionalMode:
-				gcDrainMarkWorkerFractional(&pp.gcw)
+				gcDrain(&pp.gcw, gcDrainFractional|gcDrainUntilPreempt|gcDrainFlushBgCredit)
 			case gcMarkWorkerIdleMode:
-				gcDrainMarkWorkerIdle(&pp.gcw)
+				gcDrain(&pp.gcw, gcDrainIdle|gcDrainUntilPreempt|gcDrainFlushBgCredit)
 			}
 			casgstatus(gp, _Gwaiting, _Grunning)
 		})
@@ -1548,12 +1538,10 @@ func gcMark(startTime int64) {
 // gcSweep must be called on the system stack because it acquires the heap
 // lock. See mheap for details.
 //
-// Returns true if the heap was fully swept by this function.
-//
 // The world must be stopped.
 //
 //go:systemstack
-func gcSweep(mode gcMode) bool {
+func gcSweep(mode gcMode) {
 	assertWorldStopped()
 
 	if gcphase != _GCoff {
@@ -1571,18 +1559,15 @@ func gcSweep(mode gcMode) bool {
 
 	sweep.centralIndex.clear()
 
-	if !concurrentSweep || mode == gcForceBlockMode {
+	if !_ConcurrentSweep || mode == gcForceBlockMode {
 		// Special case synchronous sweep.
 		// Record that no proportional sweeping has to happen.
 		lock(&mheap_.lock)
 		mheap_.sweepPagesPerByte = 0
 		unlock(&mheap_.lock)
-		// Flush all mcaches.
-		for _, pp := range allp {
-			pp.mcache.prepareForSweep()
-		}
 		// Sweep all spans eagerly.
 		for sweepone() != ^uintptr(0) {
+			sweep.npausesweep++
 		}
 		// Free workbufs eagerly.
 		prepareFreeWorkbufs()
@@ -1593,7 +1578,7 @@ func gcSweep(mode gcMode) bool {
 		// available immediately.
 		mProf_NextCycle()
 		mProf_Flush()
-		return true
+		return
 	}
 
 	// Background sweep.
@@ -1603,7 +1588,6 @@ func gcSweep(mode gcMode) bool {
 		ready(sweep.g, 0, true)
 	}
 	unlock(&sweep.lock)
-	return false
 }
 
 // gcResetMarkState resets global state prior to marking (concurrent
