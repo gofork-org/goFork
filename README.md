@@ -13,7 +13,7 @@ Allman/Horstmann style is for we human, K&R style is for google robots!
 sudo rm -rf /usr/local/go && wget -qO- https://golang.org/dl/go1.18.1.linux-amd64.tar.gz | sudo tar -xvz -C /usr/local
 export -n GOROOT ; hash -d go
 sudo mv /usr/local/go /usr/local/go.golang
-git clone --depth 1 --recursive https://github.com/gofork-org/go.git
+git clone --depth 1 --recursive https://github.com/gofork-org/goFork.git
 #or: wget https://github.com/gofork-org/go/archive/refs/heads/master.zip && unzip master.zip
 cp -r ./go/bin.bootstrap ./go/bin
 cd ./go/src
