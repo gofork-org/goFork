@@ -29,6 +29,7 @@ cd ../test-gofork
 #if everything is ok, we can replace golang with gofork:
 sudo cp -r ../ /usr/local/go
 sudo export PATH=$PATH:/usr/local/go/bin         #or append ":/usr/local/go/bin" into PATH in /etc/environment
+go version                     #go version go1.21.3 linux/amd64
 
 #if you have "git pull" again, you should run ./all.bash again to match the ./bin/go with the latest ./src(stdlib)
 ```
