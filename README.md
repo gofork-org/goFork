@@ -1,42 +1,98 @@
-# The Go Programming Language
+# goFork (v1.21.3):
 
-Go is an open source programming language that makes it easy to build simple,
-reliable, and efficient software.
+Fork golang to support Allman/Horstmann style of curly braces 
 
-![Gopher image](https://golang.org/doc/gopher/fiveyears.jpg)
-*Gopher image by [Renee French][rf], licensed under [Creative Commons 4.0 Attributions license][cc4-by].*
+The google guys don't like allman style, but it's very easy to support allman style, just added only 13 lines of code into golang compiler.
 
-Our canonical Git repository is located at https://go.googlesource.com/go.
-There is a mirror of the repository at https://github.com/golang/go.
+Allman/Horstmann style is for we human, K&R style is for google robots!
 
-Unless otherwise noted, the Go source files are distributed under the
-BSD-style license found in the LICENSE file.
+![Gopher image](https://avatars.githubusercontent.com/u/86223803)
 
-### Download and Install
+# Compile goFork:
+```bash
+sudo rm -rf /usr/local/go && wget -qO- https://golang.org/dl/go1.18.1.linux-amd64.tar.gz | sudo tar -xvz -C /usr/local
+export -n GOROOT ; hash -d go
+sudo mv /usr/local/go /usr/local/go.golang
+git clone --depth 1 --recursive https://github.com/gofork-org/go.git
+#or: wget https://github.com/gofork-org/go/archive/refs/heads/master.zip && unzip master.zip
+cp -r ./go/bin.bootstrap ./go/bin
+cd ./go/src
+#bootstrap depends on ./pkg/tool/linux_amd64/compile(23MB bin), ./bin/go(15MB bin), can't simply copy them into goFork, will be not compatible with ./src/
+export GOROOT_BOOTSTRAP=/usr/local/go.golang
+./all.bash             #need 50 seconds to build gofork compiler           
 
-#### Binary Distributions
+cd ../test-gofork
+../bin/go mod init test
+../bin/go build -ldflags="-s -w"
+./test
 
-Official binary distributions are available at https://go.dev/dl/.
+#if everything is ok, we can replace golang with gofork:
+sudo cp -r ../ /usr/local/go
+sudo export PATH=$PATH:/usr/local/go/bin         #or append ":/usr/local/go/bin" into PATH in /etc/environment
 
-After downloading a binary release, visit https://go.dev/doc/install
-for installation instructions.
+#if you have "git pull" again, you should run ./all.bash again to match the ./bin/go with the latest ./src(stdlib)
+```
 
-#### Install From Source
+# test-gofork/test.go, Allman/Horstmann style:
 
-If a binary distribution is not available for your combination of
-operating system and architecture, visit
-https://go.dev/doc/install/source
-for source installation instructions.
+```go
+package main
+import
+(   "fmt"
+)
 
-### Contributing
 
-Go is the work of thousands of contributors. We appreciate your help!
+func main()
+{   if false
+    {   fmt.Println("jack")
+        fmt.Println("gofork")
+    } else
+    {   fmt/
+           .Println("hello")
+        fmt.Println("gofork")
+    }
 
-To contribute, please read the contribution guidelines at https://go.dev/doc/contribute.
+    var a="hello"
 
-Note that the Go project uses the issue tracker for bug reports and
-proposals only. See https://go.dev/wiki/Questions for a list of
-places to ask questions about the Go language.
+    {   var b="gofork"
+        fmt.Println(a, b)
+    }
+}
 
-[rf]: https://reneefrench.blogspot.com/
-[cc4-by]: https://creativecommons.org/licenses/by/4.0/
+```
+
+Notes:
+
+1. In this style, the '{' at the beginning of the line needs to be followed by a whitespace or a tab
+
+2. A seperate code block needs a precedent empty line
+
+While gofork keeps support for golang's K&R style:
+
+```go
+package main
+import(
+    "fmt"
+)
+
+
+func main() {
+    if false {
+        fmt.Println("jack")
+        fmt.Println("gofork")
+    } else {
+        fmt.
+           Println("hello")
+        fmt.Println("gofork")
+    }
+
+    var a="hello"
+    {
+        var b="gofork"
+        fmt.Println(a, b)
+    }
+}
+
+```
+
+Note:  the '{' at the beginning of the line should not be followed by a whitespace or a tab

@@ -834,6 +834,16 @@ scanAgain:
 			// we only reach here if s.insertSemi was
 			// set in the first place and exited early
 			// from s.skipWhitespace()
+
+			for s.ch == ' ' || s.ch == '\t' || s.ch == '\r' {
+				s.next()
+			}
+			if s.ch == '{' && (s.peek() == ' ' || s.peek() == '\t') {
+				s.next()
+				tok = token.LBRACE
+				break
+			}
+
 			s.insertSemi = false // newline consumed
 			return pos, token.SEMICOLON, "\n"
 		case '"':

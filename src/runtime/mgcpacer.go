@@ -654,8 +654,7 @@ func (c *gcControllerState) endCycle(now int64, procs int, userForced bool) {
 	//
 	// Note that because we only care about the ratio, assistDuration and procs cancel out.
 	scanWork := c.heapScanWork.Load() + c.stackScanWork.Load() + c.globalsScanWork.Load()
-	currentConsMark := (float64(c.heapLive.Load()-c.triggered) * (utilization + idleUtilization)) /
-		(float64(scanWork) * (1 - utilization))
+	currentConsMark := (float64(c.heapLive.Load()-c.triggered) * (utilization + idleUtilization)) / (float64(scanWork) * (1 - utilization))
 
 	// Update our cons/mark estimate. This is the maximum of the value we just computed and the last
 	// 4 cons/mark values we measured. The reason we take the maximum here is to bias a noisy
