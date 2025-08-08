@@ -10,7 +10,7 @@ Allman/Horstmann style is for we human, K&R style is for google robots!
 
 # Compile goFork:
 ```bash
-sudo rm -rf /usr/local/go && wget -qO- https://golang.org/dl/go1.18.1.linux-amd64.tar.gz | sudo tar -xvz -C /usr/local
+sudo rm -rf /usr/local/go && wget -qO- https://golang.org/dl/go1.22.6.linux-amd64.tar.gz | sudo tar -xvz -C /usr/local
 export -n GOROOT ; hash -d go
 sudo mv /usr/local/go /usr/local/go.golang
 git clone --depth 1 --recursive https://github.com/gofork-org/goFork.git
