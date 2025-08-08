@@ -1,0 +1,156 @@
+name: Patch and Commit Go Fork
+
+on:
+  workflow_dispatch:
+    inputs:
+      go_version:
+        description: 'Go version to patch (e.g., 1.22.0)'
+        required: true
+        default: '1.21.3'
+
+jobs:
+  patch-and-commit-go:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Go source code from official repo
+        uses: actions/checkout@v3
+        with:
+          repository: 'golang/go'
+          ref: 'go${{ github.event.inputs.go_version }}'
+          path: 'go_source'
+
+      - name: Create patch scripts
+        run: |
+          # Use 'printf' to preserve literal tabs, which are crucial for the diff.
+          # Script for src/go/scanner/scanner.go
+          printf '/s.insertSemi = false \\/\\/ newline consumed/ {\n' > patch_go_scanner.awk
+          printf '  print "\\n\\t\\t\\tfor s.ch == '\'' '\'' || s.ch == '\''\\\\t'\'' || s.ch == '\''\\\\r'\'' {";\n' >> patch_go_scanner.awk
+          printf '  print "\\t\\t\\t\\ts.next()";\n' >> patch_go_scanner.awk
+          printf '  print "\\t\\t\\t}";\n' >> patch_go_scanner.awk
+          printf '  print "\\t\\t\\tif s.ch == '\''{'\'' && (s.peek() == '\'' '\'' || s.peek() == '\''\\\\t'\'') {";\n' >> patch_go_scanner.awk
+          printf '  print "\\t\\t\\t\\ts.next()";\n' >> patch_go_scanner.awk
+          printf '  print "\\t\\t\\t\\ttok = token.LBRACE";\n' >> patch_go_scanner.awk
+          printf '  print "\\t\\t\\t\\tbreak";\n' >> patch_go_scanner.awk
+          printf '  print "\\t\\t\\t}";\n' >> patch_go_scanner.awk
+          printf '  print "";\n' >> patch_go_scanner.awk
+          printf '}\n' >> patch_go_scanner.awk
+          printf '{ print }\n' >> patch_go_scanner.awk
+
+          # Script for src/cmd/compile/internal/syntax/scanner.go (Allman braces)
+          cat <<'EOF' > patch_syntax_scanner_1.awk
+          BEGIN { state=0 }
+          {
+            if ($0 ~ /case '\\n':/) {
+              state = 1;
+              print "\tcase '\\n':";
+              print "\t\ts.nextch()";
+              print "\t\tfor s.ch == ' ' || s.ch == '\\t' || s.ch == '\\r' {";
+              print "\t\t\ts.nextch()";
+              print "\t\t}";
+              print "\t\tif s.ch == '{' {";
+              print "\t\t\ts.nextch()";
+              print "\t\t\tif s.ch == ' ' || s.ch == '\\t' {";
+              print "\t\t\t\ts.nextch()";
+              print "\t\t\t\ts.tok = _Lbrace";
+              print "\t\t\t\tbreak";
+              print "\t\t\t}";
+              print "\t\t}";
+              print "\t\ts.rewind()";
+              print "";
+              print "\t\ts.nextch()";
+              print "\t\ts.lit = \"newline\"";
+              print "\t\ts.tok = _Semi";
+              next;
+            }
+            if ($0 ~ /s.tok = _Semi/ && state == 1) {
+              state = 2;
+              next;
+            }
+            if (state != 1) {
+              print $0;
+            }
+          }
+          EOF
+
+          # Script for src/cmd/compile/internal/syntax/scanner.go (fmt/ syntax)
+          cat <<'EOF' > patch_syntax_scanner_2.awk
+          BEGIN { state=0 }
+          {
+            if (state == 1 && /s\.nextch\(\)/) {
+              print $0;
+              print "\n\t\tif s.ch == '\\n' {";
+              print "\t\t\ts.nextch()";
+              print "\t\t\tgoto redo";
+              print "\t\t}\n";
+              state = 2;
+            } else {
+              print $0;
+            }
+          }
+          /case '\/':/ { if (state == 0) { state = 1 } }
+          EOF
+
+      - name: Patch Go Source Files
+        run: |
+          cd go_source
+
+          # 1. Patch .gitignore
+          echo "Patching .gitignore..."
+          sed -i '/\/test\/times.out/a \/test-gofork\/test\n\/test-gofork\/go.mod' .gitignore
+
+          # 2. Patch src/all.bash
+          echo "Patching src/all.bash..."
+          sed -i 's|^bash run.bash --no-rebuild|#bash run.bash --no-rebuild|' src/all.bash
+
+          # 3. Patch src/runtime/mgcpacer.go
+          echo "Patching src/runtime/mgcpacer.go..."
+          perl -i -p0e 's/currentConsMark := \(float64\(c.heapLive.Load\(\)-c.triggered\) \* \(utilization \+ idleUtilization\)\) \/\s*\(float64\(scanWork\) \* \(1 - utilization\)\)/currentConsMark := (float64(c.heapLive.Load()-c.triggered) * (utilization + idleUtilization)) \/ (float64(scanWork) * (1 - utilization))/' src/runtime/mgcpacer.go
+
+          # 4. Patch src/go/scanner/scanner.go
+          echo "Patching src/go/scanner/scanner.go..."
+          awk -f ../patch_go_scanner.awk src/go/scanner/scanner.go > tmp && mv tmp src/go/scanner/scanner.go
+
+          # 5. Patch src/cmd/compile/internal/syntax/scanner.go
+          echo "Patching src/cmd/compile/internal/syntax/scanner.go..."
+          awk -f ../patch_syntax_scanner_1.awk src/cmd/compile/internal/syntax/scanner.go > tmp1 && mv tmp1 src/cmd/compile/internal/syntax/scanner.go
+          awk -f ../patch_syntax_scanner_2.awk src/cmd/compile/internal/syntax/scanner.go > tmp2 && mv tmp2 src/cmd/compile/internal/syntax/scanner.go
+
+        shell: bash
+
+      - name: Check out the goFork repository for README and test files
+        uses: actions/checkout@v3
+        with:
+          path: 'go_fork_assets'
+
+      - name: Create test-gofork directory and replace README
+        run: |
+          echo "Creating test-gofork directory..."
+          mkdir -p go_source/test-gofork
+          cp go_fork_assets/test-gofork/test.go go_source/test-gofork/test.go
+          echo "Replacing README.md..."
+          cp go_fork_assets/README.md go_source/README.md
+        shell: bash
+
+      - name: Check out the goFork repository main branch
+        uses: actions/checkout@v3
+        with:
+          path: 'go_fork_main'
+
+      - name: Sync patched files to goFork main branch checkout
+        run: |
+          rsync -av --delete --exclude='.git' --exclude='.github' go_source/ go_fork_main/
+        shell: bash
+
+      - name: Commit and push changes
+        run: |
+          cd go_fork_main
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add .
+          if git diff-index --quiet HEAD; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update Go source to version ${{ github.event.inputs.go_version }} with goFork patches" -m "This commit is automated by the gofork-patch workflow."
+            git push
+          fi
+        shell: bash
