@@ -5,7 +5,8 @@
 // This program generates Go code that applies rewrite rules to a Value.
 // The generated code implements a function of type func (v *Value) bool
 // which reports whether if did something.
-// Ideas stolen from Swift: http://www.hpl.hp.com/techreports/Compaq-DEC/WRL-2000-2.html
+// Ideas stolen from the Swift Java compiler:
+// https://bitsavers.org/pdf/dec/tech_reports/WRL-2000-2.pdf
 
 package main
 
@@ -582,6 +583,7 @@ func fprint(w io.Writer, n Node) {
 			"fmt",
 			"internal/buildcfg",
 			"math",
+			"math/bits",
 			"cmd/internal/obj",
 			"cmd/compile/internal/base",
 			"cmd/compile/internal/types",
@@ -1400,7 +1402,7 @@ func parseValue(val string, arch arch, loc string) (op opData, oparch, typ, auxi
 	if op.name == "" {
 		// Failed to find the op.
 		// Run through everything again with strict=false
-		// to generate useful diagnosic messages before failing.
+		// to generate useful diagnostic messages before failing.
 		for _, x := range genericOps {
 			match(x, false, "generic")
 		}

@@ -6,8 +6,8 @@ package testing
 
 import (
 	"fmt"
-	"os"
-	"sort"
+	"runtime"
+	"slices"
 	"strings"
 	"time"
 )
@@ -29,14 +29,11 @@ func RunExamples(matchString func(pat, str string) (bool, error), examples []Int
 func runExamples(matchString func(pat, str string) (bool, error), examples []InternalExample) (ran, ok bool) {
 	ok = true
 
-	var eg InternalExample
+	m := newMatcher(matchString, *match, "-test.run", *skip)
 
+	var eg InternalExample
 	for _, eg = range examples {
-		matched, err := matchString(*match, eg.Name)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "testing: invalid regexp for -test.run: %s\n", err)
-			os.Exit(1)
-		}
+		_, matched, _ := m.fullName(nil, eg.Name)
 		if !matched {
 			continue
 		}
@@ -51,7 +48,7 @@ func runExamples(matchString func(pat, str string) (bool, error), examples []Int
 
 func sortLines(output string) string {
 	lines := strings.Split(output, "\n")
-	sort.Strings(lines)
+	slices.Sort(lines)
 	return strings.Join(lines, "\n")
 }
 
@@ -70,6 +67,10 @@ func (eg *InternalExample) processRunResult(stdout string, timeSpent time.Durati
 	var fail string
 	got := strings.TrimSpace(stdout)
 	want := strings.TrimSpace(eg.Output)
+	if runtime.GOOS == "windows" {
+		got = strings.ReplaceAll(got, "\r\n", "\n")
+		want = strings.ReplaceAll(want, "\r\n", "\n")
+	}
 	if eg.Unordered {
 		if sortLines(got) != sortLines(want) && recovered == nil {
 			fail = fmt.Sprintf("got:\n%s\nwant (unordered):\n%s\n", stdout, eg.Output)

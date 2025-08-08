@@ -1,6 +1,6 @@
 // errorcheckwithauto -0 -l -live -wb=0 -d=ssa/insert_resched_checks/off
+
 //go:build (amd64 && goexperiment.regabiargs) || (arm64 && goexperiment.regabiargs)
-// +build amd64,goexperiment.regabiargs arm64,goexperiment.regabiargs
 
 // Copyright 2014 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -164,7 +164,7 @@ var b bool
 
 // this used to have a spurious "live at entry to f11a: ~r0"
 func f11a() *int {
-	select { // ERROR "stack object .autotmp_[0-9]+ \[2\]struct"
+	select { // ERROR "stack object .autotmp_[0-9]+ \[2\]runtime.scase$"
 	case <-c:
 		return nil
 	case <-c:
@@ -179,7 +179,7 @@ func f11b() *int {
 		// get to the bottom of the function.
 		// This used to have a spurious "live at call to printint: p".
 		printint(1) // nothing live here!
-		select {    // ERROR "stack object .autotmp_[0-9]+ \[2\]struct"
+		select {    // ERROR "stack object .autotmp_[0-9]+ \[2\]runtime.scase$"
 		case <-c:
 			return nil
 		case <-c:
@@ -199,7 +199,7 @@ func f11c() *int {
 		// Unlike previous, the cases in this select fall through,
 		// so we can get to the println, so p is not dead.
 		printint(1) // ERROR "live at call to printint: p$"
-		select {    // ERROR "live at call to selectgo: p$" "stack object .autotmp_[0-9]+ \[2\]struct"
+		select {    // ERROR "live at call to selectgo: p$" "stack object .autotmp_[0-9]+ \[2\]runtime.scase$"
 		case <-c:
 		case <-c:
 		}
@@ -278,6 +278,7 @@ func f17b(p *byte) { // ERROR "live at entry to f17b: p$"
 	// key temporary
 	if b {
 		m2s[str()] = p // ERROR "live at call to mapassign_faststr: p$" "live at call to str: p$"
+
 	}
 	m2s[str()] = p // ERROR "live at call to mapassign_faststr: p$" "live at call to str: p$"
 	m2s[str()] = p // ERROR "live at call to mapassign_faststr: p$" "live at call to str: p$"
@@ -455,14 +456,14 @@ func f28(b bool) {
 
 func f29(b bool) {
 	if b {
-		for k := range m { // ERROR "live at call to mapiterinit: .autotmp_[0-9]+$" "live at call to mapiternext: .autotmp_[0-9]+$" "stack object .autotmp_[0-9]+ map.iter\[string\]int$"
+		for k := range m { // ERROR "live at call to (mapiterinit|mapIterStart): .autotmp_[0-9]+$" "live at call to (mapiternext|mapIterNext): .autotmp_[0-9]+$" "stack object .autotmp_[0-9]+ (runtime.hiter|internal/runtime/maps.Iter)$"
 			printstring(k) // ERROR "live at call to printstring: .autotmp_[0-9]+$"
 		}
 	}
-	for k := range m { // ERROR "live at call to mapiterinit: .autotmp_[0-9]+$" "live at call to mapiternext: .autotmp_[0-9]+$"
+	for k := range m { // ERROR "live at call to (mapiterinit|mapIterStart): .autotmp_[0-9]+$" "live at call to (mapiternext|mapIterNext): .autotmp_[0-9]+$"
 		printstring(k) // ERROR "live at call to printstring: .autotmp_[0-9]+$"
 	}
-	for k := range m { // ERROR "live at call to mapiterinit: .autotmp_[0-9]+$" "live at call to mapiternext: .autotmp_[0-9]+$"
+	for k := range m { // ERROR "live at call to (mapiterinit|mapIterStart): .autotmp_[0-9]+$" "live at call to (mapiternext|mapIterNext): .autotmp_[0-9]+$"
 		printstring(k) // ERROR "live at call to printstring: .autotmp_[0-9]+$"
 	}
 }
@@ -597,7 +598,7 @@ func f38(b bool) {
 	// we care that the println lines have no live variables
 	// and therefore no output.
 	if b {
-		select { // ERROR "live at call to selectgo:( .autotmp_[0-9]+)+$" "stack object .autotmp_[0-9]+ \[4\]struct \{"
+		select { // ERROR "live at call to selectgo:( .autotmp_[0-9]+)+$" "stack object .autotmp_[0-9]+ \[4\]runtime.scase$"
 		case <-fc38():
 			printnl()
 		case fc38() <- *fi38(1): // ERROR "live at call to fc38:( .autotmp_[0-9]+)+$" "live at call to fi38:( .autotmp_[0-9]+)+$" "stack object .autotmp_[0-9]+ string$"
@@ -656,20 +657,20 @@ func newT40() *T40 {
 	return &ret
 }
 
-func bad40() {
-	t := newT40()
-	_ = t
-	printnl()
-}
-
 func good40() {
 	ret := T40{}              // ERROR "stack object ret T40$"
-	ret.m = make(map[int]int) // ERROR "live at call to fastrand: .autotmp_[0-9]+$" "stack object .autotmp_[0-9]+ map.hdr\[int\]int$"
+	ret.m = make(map[int]int) // ERROR "live at call to rand(32)?: .autotmp_[0-9]+$" "stack object .autotmp_[0-9]+ (runtime.hmap|internal/runtime/maps.Map)$"
 	t := &ret
 	printnl() // ERROR "live at call to printnl: ret$"
 	// Note: ret is live at the printnl because the compiler moves &ret
 	// from before the printnl to after.
 	useT40(t)
+}
+
+func bad40() {
+	t := newT40()
+	_ = t
+	printnl()
 }
 
 func ddd1(x, y *int) { // ERROR "live at entry to ddd1: x y$"

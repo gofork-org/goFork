@@ -100,7 +100,10 @@ func cap1() {
 
 	var s [][]byte
 	_ = cap(s)
-	_ = cap(s... /* ERROR "invalid use of ..." */ )
+	_ = cap(s... /* ERROR "invalid use of ... with built-in cap" */ )
+
+	var x int
+	_ = cap(x /* ERROR "invalid argument: x (variable of type int) for built-in cap" */ )
 }
 
 func cap2() {
@@ -512,7 +515,7 @@ func max1() {
 	_ = max(s)
 	_ = max(x, x)
 	_ = max(x, x, x, x, x)
-	var _ int = max /* ERROR "cannot use max(m) (value of type myint) as int value" */ (m)
+	var _ int = max /* ERROR "cannot use max(m) (value of int type myint) as int value" */ (m)
 	_ = max(x, m /* ERROR "invalid argument: mismatched types int (previous argument) and myint (type of m)" */ , x)
 
 	_ = max(1, x)
@@ -566,7 +569,7 @@ func min1() {
 	_ = min(s)
 	_ = min(x, x)
 	_ = min(x, x, x, x, x)
-	var _ int = min /* ERROR "cannot use min(m) (value of type myint) as int value" */ (m)
+	var _ int = min /* ERROR "cannot use min(m) (value of int type myint) as int value" */ (m)
 	_ = min(x, m /* ERROR "invalid argument: mismatched types int (previous argument) and myint (type of m)" */ , x)
 
 	_ = min(1, x)
@@ -792,16 +795,16 @@ type S2 struct{ // offset
 type S3 struct { // offset
 	a int64  //  0
 	b int32  //  8
-}                // 12
+}                // 16
 
 type S4 struct { // offset
 	S3       //  0
 	int32    // 12
-}                // 16
+}                // 24
 
 type S5 struct {   // offset
 	a [3]int32 //  0
-	b int32    // 12
+	b int32    // 16
 }                  // 16
 
 func (S2) m() {}
@@ -936,16 +939,16 @@ func Sizeof1() {
 	assert(unsafe.Sizeof(y2) == 8)
 
 	var y3 S3
-	assert(unsafe.Sizeof(y3) == 12)
+	assert(unsafe.Sizeof(y3) == 16)
 
 	var y4 S4
-	assert(unsafe.Sizeof(y4) == 16)
+	assert(unsafe.Sizeof(y4) == 24)
 
 	var y5 S5
 	assert(unsafe.Sizeof(y5) == 16)
 
 	var a3 [10]S3
-	assert(unsafe.Sizeof(a3) == 156)
+	assert(unsafe.Sizeof(a3) == 160)
 
 	// test case for issue 5670
 	type T struct {

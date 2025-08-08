@@ -475,6 +475,12 @@ TEXT runtime·osinit_hack_trampoline(SB),NOSPLIT,$0
 	BL	libc_xpc_date_create_from_current(SB)
 	RET
 
+TEXT runtime·arc4random_buf_trampoline(SB),NOSPLIT,$0
+	MOVW	8(R0), R1	// arg 2 nbytes
+	MOVD	0(R0), R0	// arg 1 buf
+	BL	libc_arc4random_buf(SB)
+	RET
+
 // syscall calls a function in libc on behalf of the syscall package.
 // syscall takes a pointer to a struct like:
 // struct {
@@ -766,4 +772,27 @@ TEXT runtime·syscall_x509(SB),NOSPLIT,$0
 
 TEXT runtime·issetugid_trampoline(SB),NOSPLIT,$0
 	BL	libc_issetugid(SB)
+	RET
+
+// mach_vm_region_trampoline calls mach_vm_region from libc.
+TEXT runtime·mach_vm_region_trampoline(SB),NOSPLIT,$0
+	MOVD	0(R0), R1	// address
+	MOVD	8(R0), R2	// size
+	MOVW	16(R0), R3	// flavor
+	MOVD	24(R0), R4	// info
+	MOVD	32(R0), R5	// count
+	MOVD	40(R0), R6  // object_name
+	MOVD	$libc_mach_task_self_(SB), R0
+	MOVW	0(R0), R0
+	BL	libc_mach_vm_region(SB)
+	RET
+
+// proc_regionfilename_trampoline calls proc_regionfilename for
+// the current process.
+TEXT runtime·proc_regionfilename_trampoline(SB),NOSPLIT,$0
+	MOVD	8(R0), R1	// address
+	MOVD	16(R0), R2	// buffer
+	MOVD	24(R0), R3	// buffer_size
+	MOVD	0(R0), R0 // pid
+	BL	libc_proc_regionfilename(SB)
 	RET

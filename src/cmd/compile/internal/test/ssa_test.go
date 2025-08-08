@@ -36,7 +36,7 @@ func runGenTest(t *testing.T, filename, tmpname string, ev ...string) {
 	rungo := filepath.Join(t.TempDir(), "run.go")
 	ok := os.WriteFile(rungo, stdout.Bytes(), 0600)
 	if ok != nil {
-		t.Fatalf("Failed to create temporary file " + rungo)
+		t.Fatalf("Failed to create temporary file %s", rungo)
 	}
 
 	stdout.Reset()
@@ -169,7 +169,7 @@ func TestCode(t *testing.T) {
 				continue
 			}
 			t.Run(fmt.Sprintf("%s%s", test.name[4:], flag), func(t *testing.T) {
-				out, err := testenv.Command(t, filepath.Join(tmpdir, "code.test"), "-test.run="+test.name).CombinedOutput()
+				out, err := testenv.Command(t, filepath.Join(tmpdir, "code.test"), "-test.run=^"+test.name+"$").CombinedOutput()
 				if err != nil || string(out) != "PASS\n" {
 					t.Errorf("Failed:\n%s\n", out)
 				}

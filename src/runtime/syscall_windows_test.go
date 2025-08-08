@@ -265,11 +265,9 @@ func TestCallbackInAnotherThread(t *testing.T) {
 	h := syscall.Handle(r)
 	defer syscall.CloseHandle(h)
 
-	switch s, err := syscall.WaitForSingleObject(h, 100); s {
+	switch s, err := syscall.WaitForSingleObject(h, syscall.INFINITE); s {
 	case syscall.WAIT_OBJECT_0:
 		break
-	case syscall.WAIT_TIMEOUT:
-		t.Fatal("timeout waiting for thread to exit")
 	case syscall.WAIT_FAILED:
 		t.Fatalf("WaitForSingleObject failed: %v", err)
 	default:
@@ -675,7 +673,7 @@ func TestWindowsStackMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read stack usage: %v", err)
 	}
-	if expected, got := 100<<10, stackUsage; got > expected {
+	if expected, got := 128<<10, stackUsage; got > expected {
 		t.Fatalf("expected < %d bytes of memory per thread, got %d", expected, got)
 	}
 }
@@ -1113,12 +1111,6 @@ func TestDLLPreloadMitigation(t *testing.T) {
 
 	tmpdir := t.TempDir()
 
-	dir0, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(dir0)
-
 	const src = `
 #include <stdint.h>
 #include <windows.h>
@@ -1129,7 +1121,7 @@ uintptr_t cfunc(void) {
 }
 `
 	srcname := "nojack.c"
-	err = os.WriteFile(filepath.Join(tmpdir, srcname), []byte(src), 0)
+	err := os.WriteFile(filepath.Join(tmpdir, srcname), []byte(src), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1150,7 +1142,7 @@ uintptr_t cfunc(void) {
 	// ("nojack.dll") Think of this as the user double-clicking an
 	// installer from their Downloads directory where a browser
 	// silently downloaded some malicious DLLs.
-	os.Chdir(tmpdir)
+	t.Chdir(tmpdir)
 
 	// First before we can load a DLL from the current directory,
 	// loading it only as "nojack.dll", without an absolute path.
@@ -1212,6 +1204,13 @@ func TestBigStackCallbackSyscall(t *testing.T) {
 	if !ok {
 		t.Fatalf("callback not called")
 	}
+}
+
+func TestSyscallStackUsage(t *testing.T) {
+	// Test that the stack usage of a syscall doesn't exceed the limit.
+	// See https://go.dev/issue/69813.
+	syscall.Syscall15(procSetEvent.Addr(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+	syscall.Syscall18(procSetEvent.Addr(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 }
 
 var (

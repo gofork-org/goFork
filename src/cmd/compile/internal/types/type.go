@@ -6,8 +6,11 @@ package types
 
 import (
 	"cmd/compile/internal/base"
+	"cmd/internal/objabi"
 	"cmd/internal/src"
 	"fmt"
+	"go/constant"
+	"internal/buildcfg"
 	"internal/types/errors"
 	"sync"
 )
@@ -127,6 +130,25 @@ var (
 	UntypedComplex = newType(TIDEAL)
 )
 
+// UntypedTypes maps from a constant.Kind to its untyped Type
+// representation.
+var UntypedTypes = [...]*Type{
+	constant.Bool:    UntypedBool,
+	constant.String:  UntypedString,
+	constant.Int:     UntypedInt,
+	constant.Float:   UntypedFloat,
+	constant.Complex: UntypedComplex,
+}
+
+// DefaultKinds maps from a constant.Kind to its default Kind.
+var DefaultKinds = [...]Kind{
+	constant.Bool:    TBOOL,
+	constant.String:  TSTRING,
+	constant.Int:     TINT,
+	constant.Float:   TFLOAT64,
+	constant.Complex: TCOMPLEX128,
+}
+
 // A Type represents a Go type.
 //
 // There may be multiple unnamed types with identical structure. However, there must
@@ -135,7 +157,7 @@ var (
 // package.Lookup(name)) and checking sym.Def. If sym.Def is non-nil, the type
 // already exists at package scope and is available at sym.Def.(*ir.Name).Type().
 // Local types (which may have the same name as a package-level type) are
-// distinguished by the value of vargen.
+// distinguished by their vargen, which is embedded in their symbol name.
 type Type struct {
 	// extra contains extra etype-specific fields.
 	// As an optimization, those etype-specific structs which contain exactly
@@ -159,9 +181,9 @@ type Type struct {
 	width int64 // valid if Align > 0
 
 	// list of base methods (excluding embedding)
-	methods Fields
+	methods fields
 	// list of all methods (including embedding)
-	allMethods Fields
+	allMethods fields
 
 	// canonical OTYPE node for a named type (should be an ir.Name node with same sym)
 	obj Object
@@ -174,22 +196,29 @@ type Type struct {
 		slice *Type // []T, or nil
 	}
 
-	vargen int32 // unique name for OTYPE/ONAME
-
 	kind  Kind  // kind of type
 	align uint8 // the required alignment of this type, in bytes (0 means Width and Align have not yet been computed)
 
-	flags bitset8
+	intRegs, floatRegs uint8 // registers needed for ABIInternal
 
-	// For defined (named) generic types, a pointer to the list of type params
-	// (in order) of this type that need to be instantiated. For instantiated
-	// generic types, this is the targs used to instantiate them. These targs
-	// may be typeparams (for re-instantiated types such as Value[T2]) or
-	// concrete types (for fully instantiated types such as Value[int]).
-	// rparams is only set for named types that are generic or are fully
-	// instantiated from a generic type, and is otherwise set to nil.
-	// TODO(danscales): choose a better name.
-	rparams *[]*Type
+	flags bitset8
+	alg   AlgKind // valid if Align > 0
+
+	// size of prefix of object that contains all pointers. valid if Align > 0.
+	// Note that for pointers, this is always PtrSize even if the element type
+	// is NotInHeap. See size.go:PtrDataSize for details.
+	ptrBytes int64
+}
+
+// Registers returns the number of integer and floating-point
+// registers required to represent a parameter of this type under the
+// ABIInternal calling conventions.
+//
+// If t must be passed by memory, Registers returns (math.MaxUint8,
+// math.MaxUint8).
+func (t *Type) Registers() (uint8, uint8) {
+	CalcSize(t)
+	return t.intRegs, t.floatRegs
 }
 
 func (*Type) CanBeAnSSAAux() {}
@@ -201,19 +230,24 @@ const (
 	typeRecur
 	typeIsShape  // represents a set of closely related types, for generics
 	typeHasShape // there is a shape somewhere in the type
+	// typeIsFullyInstantiated reports whether a type is fully instantiated generic type; i.e.
+	// an instantiated generic type where all type arguments are non-generic or fully instantiated generic types.
+	typeIsFullyInstantiated
 )
 
-func (t *Type) NotInHeap() bool  { return t.flags&typeNotInHeap != 0 }
-func (t *Type) Noalg() bool      { return t.flags&typeNoalg != 0 }
-func (t *Type) Deferwidth() bool { return t.flags&typeDeferwidth != 0 }
-func (t *Type) Recur() bool      { return t.flags&typeRecur != 0 }
-func (t *Type) IsShape() bool    { return t.flags&typeIsShape != 0 }
-func (t *Type) HasShape() bool   { return t.flags&typeHasShape != 0 }
+func (t *Type) NotInHeap() bool           { return t.flags&typeNotInHeap != 0 }
+func (t *Type) Noalg() bool               { return t.flags&typeNoalg != 0 }
+func (t *Type) Deferwidth() bool          { return t.flags&typeDeferwidth != 0 }
+func (t *Type) Recur() bool               { return t.flags&typeRecur != 0 }
+func (t *Type) IsShape() bool             { return t.flags&typeIsShape != 0 }
+func (t *Type) HasShape() bool            { return t.flags&typeHasShape != 0 }
+func (t *Type) IsFullyInstantiated() bool { return t.flags&typeIsFullyInstantiated != 0 }
 
-func (t *Type) SetNotInHeap(b bool)  { t.flags.set(typeNotInHeap, b) }
-func (t *Type) SetNoalg(b bool)      { t.flags.set(typeNoalg, b) }
-func (t *Type) SetDeferwidth(b bool) { t.flags.set(typeDeferwidth, b) }
-func (t *Type) SetRecur(b bool)      { t.flags.set(typeRecur, b) }
+func (t *Type) SetNotInHeap(b bool)           { t.flags.set(typeNotInHeap, b) }
+func (t *Type) SetNoalg(b bool)               { t.flags.set(typeNoalg, b) }
+func (t *Type) SetDeferwidth(b bool)          { t.flags.set(typeDeferwidth, b) }
+func (t *Type) SetRecur(b bool)               { t.flags.set(typeRecur, b) }
+func (t *Type) SetIsFullyInstantiated(b bool) { t.flags.set(typeIsFullyInstantiated, b) }
 
 // Should always do SetHasShape(true) when doing SetIsShape(true).
 func (t *Type) SetIsShape(b bool)  { t.flags.set(typeIsShape, b) }
@@ -242,42 +276,22 @@ func (t *Type) Pos() src.XPos {
 	return src.NoXPos
 }
 
-func (t *Type) RParams() []*Type {
-	if t.rparams == nil {
-		return nil
-	}
-	return *t.rparams
-}
-
-func (t *Type) SetRParams(rparams []*Type) {
-	if len(rparams) == 0 {
-		base.Fatalf("Setting nil or zero-length rparams")
-	}
-	t.rparams = &rparams
-	// HasShape should be set if any type argument is or has a shape type.
-	for _, rparam := range rparams {
-		if rparam.HasShape() {
-			t.SetHasShape(true)
-			break
-		}
-	}
-}
-
-// IsFullyInstantiated reports whether t is a fully instantiated generic type; i.e. an
-// instantiated generic type where all type arguments are non-generic or fully
-// instantiated generic types.
-func (t *Type) IsFullyInstantiated() bool {
-	return len(t.RParams()) > 0
-}
-
 // Map contains Type fields specific to maps.
 type Map struct {
 	Key  *Type // Key type
 	Elem *Type // Val (elem) type
 
-	Bucket *Type // internal struct type representing a hash bucket
-	Hmap   *Type // internal struct type representing the Hmap (map header object)
-	Hiter  *Type // internal struct type representing hash iterator state
+	// Note: It would be cleaner to completely split Map into OldMap and
+	// SwissMap, but 99% of the types map code doesn't care about the
+	// implementation at all, so it is tons of churn to split the type.
+	// Only code that looks at the bucket field can care about the
+	// implementation.
+
+	// GOEXPERIMENT=noswissmap fields
+	OldBucket *Type // internal struct type representing a hash bucket
+
+	// GOEXPERIMENT=swissmap fields
+	SwissGroup *Type // internal struct type representing a slot group
 }
 
 // MapType returns t's extra map-specific fields.
@@ -292,17 +306,20 @@ type Forward struct {
 	Embedlineno src.XPos // first use of this type as an embedded type
 }
 
-// ForwardType returns t's extra forward-type-specific fields.
-func (t *Type) ForwardType() *Forward {
+// forwardType returns t's extra forward-type-specific fields.
+func (t *Type) forwardType() *Forward {
 	t.wantEtype(TFORW)
 	return t.extra.(*Forward)
 }
 
 // Func contains Type fields specific to func types.
 type Func struct {
-	Receiver *Type // function receiver
-	Results  *Type // function results
-	Params   *Type // function params
+	allParams []*Field // slice of all parameters, in receiver/params/results order
+
+	startParams  int // index of the start of the (regular) parameters section
+	startResults int // index of the start of the results section
+
+	resultsTuple *Type // struct-like type representing multi-value results
 
 	// Argwid is the total width of the function receiver, params, and results.
 	// It gets calculated via a temporary TFUNCARGS type.
@@ -310,33 +327,28 @@ type Func struct {
 	Argwid int64
 }
 
-// FuncType returns t's extra func-specific fields.
-func (t *Type) FuncType() *Func {
+func (ft *Func) recvs() []*Field         { return ft.allParams[:ft.startParams] }
+func (ft *Func) params() []*Field        { return ft.allParams[ft.startParams:ft.startResults] }
+func (ft *Func) results() []*Field       { return ft.allParams[ft.startResults:] }
+func (ft *Func) recvParams() []*Field    { return ft.allParams[:ft.startResults] }
+func (ft *Func) paramsResults() []*Field { return ft.allParams[ft.startParams:] }
+
+// funcType returns t's extra func-specific fields.
+func (t *Type) funcType() *Func {
 	t.wantEtype(TFUNC)
 	return t.extra.(*Func)
 }
 
 // StructType contains Type fields specific to struct types.
 type Struct struct {
-	fields Fields
+	fields fields
 
 	// Maps have three associated internal structs (see struct MapType).
 	// Map links such structs back to their map type.
 	Map *Type
 
-	Funarg Funarg // type of function arguments for arg struct
+	ParamTuple bool // whether this struct is actually a tuple of signature parameters
 }
-
-// Funarg records the kind of function argument
-type Funarg uint8
-
-const (
-	FunargNone    Funarg = iota
-	FunargRcvr           // receiver
-	FunargParams         // input parameters
-	FunargResults        // output results
-	FunargTparams        // type params
-)
 
 // StructType returns t's extra struct-specific fields.
 func (t *Type) StructType() *Struct {
@@ -358,7 +370,7 @@ type ChanArgs struct {
 	T *Type // reference to a chan type whose elements need a width check
 }
 
-// // FuncArgs contains Type fields specific to TFUNCARGS types.
+// FuncArgs contains Type fields specific to TFUNCARGS types.
 type FuncArgs struct {
 	T *Type // reference to a func type whose elements need a width check
 }
@@ -369,8 +381,8 @@ type Chan struct {
 	Dir  ChanDir // channel direction
 }
 
-// ChanType returns t's extra channel-specific fields.
-func (t *Type) ChanType() *Chan {
+// chanType returns t's extra channel-specific fields.
+func (t *Type) chanType() *Chan {
 	t.wantEtype(TCHAN)
 	return t.extra.(*Chan)
 }
@@ -421,8 +433,7 @@ type Field struct {
 	Nname Object
 
 	// Offset in bytes of this field or method within its enclosing struct
-	// or interface Type.  Exception: if field is function receiver, arg or
-	// result, then this is BOGUS_FUNARG_OFFSET; types does not know the Abi.
+	// or interface Type. For parameters, this is BADWIDTH.
 	Offset int64
 }
 
@@ -447,39 +458,30 @@ func (f *Field) IsMethod() bool {
 	return f.Type.kind == TFUNC && f.Type.Recv() != nil
 }
 
-// Fields is a pointer to a slice of *Field.
-// This saves space in Types that do not have fields or methods
-// compared to a simple slice of *Field.
-type Fields struct {
-	s *[]*Field
+// CompareFields compares two Field values by name.
+func CompareFields(a, b *Field) int {
+	return CompareSyms(a.Sym, b.Sym)
 }
 
-// Len returns the number of entries in f.
-func (f *Fields) Len() int {
-	if f.s == nil {
-		return 0
-	}
-	return len(*f.s)
+// fields is a pointer to a slice of *Field.
+// This saves space in Types that do not have fields or methods
+// compared to a simple slice of *Field.
+type fields struct {
+	s *[]*Field
 }
 
 // Slice returns the entries in f as a slice.
 // Changes to the slice entries will be reflected in f.
-func (f *Fields) Slice() []*Field {
+func (f *fields) Slice() []*Field {
 	if f.s == nil {
 		return nil
 	}
 	return *f.s
 }
 
-// Index returns the i'th element of Fields.
-// It panics if f does not have at least i+1 elements.
-func (f *Fields) Index(i int) *Field {
-	return (*f.s)[i]
-}
-
 // Set sets f to a slice.
 // This takes ownership of the slice.
-func (f *Fields) Set(s []*Field) {
+func (f *fields) Set(s []*Field) {
 	if len(s) == 0 {
 		f.s = nil
 	} else {
@@ -488,14 +490,6 @@ func (f *Fields) Set(s []*Field) {
 		t := s
 		f.s = &t
 	}
-}
-
-// Append appends entries to f.
-func (f *Fields) Append(s ...*Field) {
-	if f.s == nil {
-		f.s = new([]*Field)
-	}
-	*f.s = append(*f.s, s...)
 }
 
 // newType returns a new Type of the specified kind.
@@ -543,6 +537,9 @@ func NewArray(elem *Type, bound int64) *Type {
 	if elem.HasShape() {
 		t.SetHasShape(true)
 	}
+	if elem.NotInHeap() {
+		t.SetNotInHeap(true)
+	}
 	return t
 }
 
@@ -570,7 +567,7 @@ func NewSlice(elem *Type) *Type {
 // NewChan returns a new chan Type with direction dir.
 func NewChan(elem *Type, dir ChanDir) *Type {
 	t := newType(TCHAN)
-	ct := t.ChanType()
+	ct := t.chanType()
 	ct.Elem = elem
 	ct.Dir = dir
 	if elem.HasShape() {
@@ -645,12 +642,21 @@ func NewPtr(elem *Type) *Type {
 	t.extra = Ptr{Elem: elem}
 	t.width = int64(PtrSize)
 	t.align = uint8(PtrSize)
+	t.intRegs = 1
 	if NewPtrCacheEnabled {
 		elem.cache.ptr = t
 	}
 	if elem.HasShape() {
 		t.SetHasShape(true)
 	}
+	t.alg = AMEM
+	if elem.Noalg() {
+		t.SetNoalg(true)
+		t.alg = ANOALG
+	}
+	// Note: we can't check elem.NotInHeap here because it might
+	// not be set yet. See size.go:PtrDataSize.
+	t.ptrBytes = int64(PtrSize)
 	return t
 }
 
@@ -737,32 +743,38 @@ func SubstAny(t *Type, types *[]*Type) *Type {
 		}
 
 	case TFUNC:
-		recvs := SubstAny(t.Recvs(), types)
-		params := SubstAny(t.Params(), types)
-		results := SubstAny(t.Results(), types)
-		if recvs != t.Recvs() || params != t.Params() || results != t.Results() {
-			t = t.copy()
-			t.FuncType().Receiver = recvs
-			t.FuncType().Results = results
-			t.FuncType().Params = params
-		}
+		ft := t.funcType()
+		allParams := substFields(ft.allParams, types)
+
+		t = t.copy()
+		ft = t.funcType()
+		ft.allParams = allParams
+
+		rt := ft.resultsTuple
+		rt = rt.copy()
+		ft.resultsTuple = rt
+		rt.setFields(t.Results())
 
 	case TSTRUCT:
 		// Make a copy of all fields, including ones whose type does not change.
 		// This prevents aliasing across functions, which can lead to later
 		// fields getting their Offset incorrectly overwritten.
-		fields := t.FieldSlice()
-		nfs := make([]*Field, len(fields))
-		for i, f := range fields {
-			nft := SubstAny(f.Type, types)
-			nfs[i] = f.Copy()
-			nfs[i].Type = nft
-		}
+		nfs := substFields(t.Fields(), types)
 		t = t.copy()
-		t.SetFields(nfs)
+		t.setFields(nfs)
 	}
 
 	return t
+}
+
+func substFields(fields []*Field, types *[]*Type) []*Field {
+	nfs := make([]*Field, len(fields))
+	for i, f := range fields {
+		nft := SubstAny(f.Type, types)
+		nfs[i] = f.Copy()
+		nfs[i].Type = nft
+	}
+	return nfs
 }
 
 // copy returns a shallow copy of the Type.
@@ -815,45 +827,56 @@ func (t *Type) wantEtype(et Kind) {
 	}
 }
 
-func (t *Type) Recvs() *Type   { return t.FuncType().Receiver }
-func (t *Type) Params() *Type  { return t.FuncType().Params }
-func (t *Type) Results() *Type { return t.FuncType().Results }
+// ResultsTuple returns the result type of signature type t as a tuple.
+// This can be used as the type of multi-valued call expressions.
+func (t *Type) ResultsTuple() *Type { return t.funcType().resultsTuple }
 
-func (t *Type) NumRecvs() int   { return t.FuncType().Receiver.NumFields() }
-func (t *Type) NumParams() int  { return t.FuncType().Params.NumFields() }
-func (t *Type) NumResults() int { return t.FuncType().Results.NumFields() }
+// Recvs returns a slice of receiver parameters of signature type t.
+// The returned slice always has length 0 or 1.
+func (t *Type) Recvs() []*Field { return t.funcType().recvs() }
+
+// Params returns a slice of regular parameters of signature type t.
+func (t *Type) Params() []*Field { return t.funcType().params() }
+
+// Results returns a slice of result parameters of signature type t.
+func (t *Type) Results() []*Field { return t.funcType().results() }
+
+// RecvParamsResults returns a slice containing all of the
+// signature's parameters in receiver (if any), (normal) parameters,
+// and then results.
+func (t *Type) RecvParamsResults() []*Field { return t.funcType().allParams }
+
+// RecvParams returns a slice containing the signature's receiver (if
+// any) followed by its (normal) parameters.
+func (t *Type) RecvParams() []*Field { return t.funcType().recvParams() }
+
+// ParamsResults returns a slice containing the signature's (normal)
+// parameters followed by its results.
+func (t *Type) ParamsResults() []*Field { return t.funcType().paramsResults() }
+
+func (t *Type) NumRecvs() int   { return len(t.Recvs()) }
+func (t *Type) NumParams() int  { return len(t.Params()) }
+func (t *Type) NumResults() int { return len(t.Results()) }
 
 // IsVariadic reports whether function type t is variadic.
 func (t *Type) IsVariadic() bool {
 	n := t.NumParams()
-	return n > 0 && t.Params().Field(n-1).IsDDD()
+	return n > 0 && t.Param(n-1).IsDDD()
 }
 
 // Recv returns the receiver of function type t, if any.
 func (t *Type) Recv() *Field {
-	s := t.Recvs()
-	if s.NumFields() == 0 {
-		return nil
+	if s := t.Recvs(); len(s) == 1 {
+		return s[0]
 	}
-	return s.Field(0)
+	return nil
 }
 
-// RecvsParamsResults stores the accessor functions for a function Type's
-// receiver, parameters, and result parameters, in that order.
-// It can be used to iterate over all of a function's parameter lists.
-var RecvsParamsResults = [3]func(*Type) *Type{
-	(*Type).Recvs, (*Type).Params, (*Type).Results,
-}
+// Param returns the i'th parameter of signature type t.
+func (t *Type) Param(i int) *Field { return t.Params()[i] }
 
-// RecvsParams is like RecvsParamsResults, but omits result parameters.
-var RecvsParams = [2]func(*Type) *Type{
-	(*Type).Recvs, (*Type).Params,
-}
-
-// ParamsResults is like RecvsParamsResults, but omits receiver parameters.
-var ParamsResults = [2]func(*Type) *Type{
-	(*Type).Params, (*Type).Results,
-}
+// Result returns the i'th result of signature type t.
+func (t *Type) Result(i int) *Field { return t.Results()[i] }
 
 // Key returns the key type of map type t.
 func (t *Type) Key() *Type {
@@ -894,55 +917,56 @@ func (t *Type) FuncArgs() *Type {
 
 // IsFuncArgStruct reports whether t is a struct representing function parameters or results.
 func (t *Type) IsFuncArgStruct() bool {
-	return t.kind == TSTRUCT && t.extra.(*Struct).Funarg != FunargNone
+	return t.kind == TSTRUCT && t.extra.(*Struct).ParamTuple
 }
 
 // Methods returns a pointer to the base methods (excluding embedding) for type t.
 // These can either be concrete methods (for non-interface types) or interface
 // methods (for interface types).
-func (t *Type) Methods() *Fields {
-	return &t.methods
+func (t *Type) Methods() []*Field {
+	return t.methods.Slice()
 }
 
 // AllMethods returns a pointer to all the methods (including embedding) for type t.
 // For an interface type, this is the set of methods that are typically iterated
 // over. For non-interface types, AllMethods() only returns a valid result after
 // CalcMethods() has been called at least once.
-func (t *Type) AllMethods() *Fields {
+func (t *Type) AllMethods() []*Field {
 	if t.kind == TINTER {
 		// Calculate the full method set of an interface type on the fly
 		// now, if not done yet.
 		CalcSize(t)
 	}
-	return &t.allMethods
+	return t.allMethods.Slice()
 }
 
-// SetAllMethods sets the set of all methods (including embedding) for type t.
-// Use this method instead of t.AllMethods().Set(), which might call CalcSize() on
-// an uninitialized interface type.
+// SetMethods sets the direct method set for type t (i.e., *not*
+// including promoted methods from embedded types).
+func (t *Type) SetMethods(fs []*Field) {
+	t.methods.Set(fs)
+}
+
+// SetAllMethods sets the set of all methods for type t (i.e.,
+// including promoted methods from embedded types).
 func (t *Type) SetAllMethods(fs []*Field) {
 	t.allMethods.Set(fs)
 }
 
-// Fields returns the fields of struct type t.
-func (t *Type) Fields() *Fields {
+// fields returns the fields of struct type t.
+func (t *Type) fields() *fields {
 	t.wantEtype(TSTRUCT)
 	return &t.extra.(*Struct).fields
 }
 
 // Field returns the i'th field of struct type t.
-func (t *Type) Field(i int) *Field {
-	return t.Fields().Slice()[i]
-}
+func (t *Type) Field(i int) *Field { return t.Fields()[i] }
 
-// FieldSlice returns a slice of containing all fields of
+// Fields returns a slice of containing all fields of
 // a struct type t.
-func (t *Type) FieldSlice() []*Field {
-	return t.Fields().Slice()
-}
+func (t *Type) Fields() []*Field { return t.fields().Slice() }
 
-// SetFields sets struct type t's fields to fields.
-func (t *Type) SetFields(fields []*Field) {
+// setFields sets struct type t's fields to fields.
+func (t *Type) setFields(fields []*Field) {
 	// If we've calculated the width of t before,
 	// then some other type such as a function signature
 	// might now have the wrong type.
@@ -953,13 +977,13 @@ func (t *Type) SetFields(fields []*Field) {
 		base.Fatalf("SetFields of %v: width previously calculated", t)
 	}
 	t.wantEtype(TSTRUCT)
-	t.Fields().Set(fields)
+	t.fields().Set(fields)
 }
 
 // SetInterface sets the base methods of an interface type t.
 func (t *Type) SetInterface(methods []*Field) {
 	t.wantEtype(TINTER)
-	t.Methods().Set(methods)
+	t.methods.Set(methods)
 }
 
 // ArgWidth returns the total aligned argument size for a function.
@@ -1102,10 +1126,6 @@ func (t *Type) cmp(x *Type) Cmp {
 	}
 
 	if x.obj != nil {
-		// Syms non-nil, if vargens match then equal.
-		if t.vargen != x.vargen {
-			return cmpForNe(t.vargen < x.vargen)
-		}
 		return CMPeq
 	}
 	// both syms nil, look at structure below.
@@ -1169,26 +1189,40 @@ func (t *Type) cmp(x *Type) Cmp {
 		// by the general code after the switch.
 
 	case TSTRUCT:
-		if t.StructType().Map == nil {
-			if x.StructType().Map != nil {
-				return CMPlt // nil < non-nil
+		if buildcfg.Experiment.SwissMap {
+			// Is this a map group type?
+			if t.StructType().Map == nil {
+				if x.StructType().Map != nil {
+					return CMPlt // nil < non-nil
+				}
+				// to the fallthrough
+			} else if x.StructType().Map == nil {
+				return CMPgt // nil > non-nil
 			}
-			// to the fallthrough
-		} else if x.StructType().Map == nil {
-			return CMPgt // nil > non-nil
-		} else if t.StructType().Map.MapType().Bucket == t {
-			// Both have non-nil Map
-			// Special case for Maps which include a recursive type where the recursion is not broken with a named type
-			if x.StructType().Map.MapType().Bucket != x {
-				return CMPlt // bucket maps are least
+			// Both have non-nil Map, fallthrough to the general
+			// case. Note that the map type does not directly refer
+			// to the group type (it uses unsafe.Pointer). If it
+			// did, this would need special handling to avoid
+			// infinite recursion.
+		} else {
+			// Is this a map bucket type?
+			if t.StructType().Map == nil {
+				if x.StructType().Map != nil {
+					return CMPlt // nil < non-nil
+				}
+				// to the fallthrough
+			} else if x.StructType().Map == nil {
+				return CMPgt // nil > non-nil
 			}
-			return t.StructType().Map.cmp(x.StructType().Map)
-		} else if x.StructType().Map.MapType().Bucket == x {
-			return CMPgt // bucket maps are least
-		} // If t != t.Map.Bucket, fall through to general case
+			// Both have non-nil Map, fallthrough to the general
+			// case. Note that the map type does not directly refer
+			// to the bucket type (it uses unsafe.Pointer). If it
+			// did, this would need special handling to avoid
+			// infinite recursion.
+		}
 
-		tfs := t.FieldSlice()
-		xfs := x.FieldSlice()
+		tfs := t.Fields()
+		xfs := x.Fields()
 		for i := 0; i < len(tfs) && i < len(xfs); i++ {
 			t1, x1 := tfs[i], xfs[i]
 			if t1.Embedded != x1.Embedded {
@@ -1210,8 +1244,8 @@ func (t *Type) cmp(x *Type) Cmp {
 		return CMPeq
 
 	case TINTER:
-		tfs := t.AllMethods().Slice()
-		xfs := x.AllMethods().Slice()
+		tfs := t.AllMethods()
+		xfs := x.AllMethods()
 		for i := 0; i < len(tfs) && i < len(xfs); i++ {
 			t1, x1 := tfs[i], xfs[i]
 			if c := t1.Sym.cmpsym(x1.Sym); c != CMPeq {
@@ -1227,22 +1261,24 @@ func (t *Type) cmp(x *Type) Cmp {
 		return CMPeq
 
 	case TFUNC:
-		for _, f := range RecvsParamsResults {
-			// Loop over fields in structs, ignoring argument names.
-			tfs := f(t).FieldSlice()
-			xfs := f(x).FieldSlice()
-			for i := 0; i < len(tfs) && i < len(xfs); i++ {
-				ta := tfs[i]
-				tb := xfs[i]
-				if ta.IsDDD() != tb.IsDDD() {
-					return cmpForNe(!ta.IsDDD())
-				}
-				if c := ta.Type.cmp(tb.Type); c != CMPeq {
-					return c
-				}
-			}
-			if len(tfs) != len(xfs) {
-				return cmpForNe(len(tfs) < len(xfs))
+		if tn, xn := t.NumRecvs(), x.NumRecvs(); tn != xn {
+			return cmpForNe(tn < xn)
+		}
+		if tn, xn := t.NumParams(), x.NumParams(); tn != xn {
+			return cmpForNe(tn < xn)
+		}
+		if tn, xn := t.NumResults(), x.NumResults(); tn != xn {
+			return cmpForNe(tn < xn)
+		}
+		if tv, xv := t.IsVariadic(), x.IsVariadic(); tv != xv {
+			return cmpForNe(!tv)
+		}
+
+		tfs := t.RecvParamsResults()
+		xfs := x.RecvParamsResults()
+		for i, tf := range tfs {
+			if c := tf.Type.cmp(xfs[i].Type); c != CMPeq {
+				return c
 			}
 		}
 		return CMPeq
@@ -1399,7 +1435,7 @@ func (t *Type) IsInterface() bool {
 
 // IsEmptyInterface reports whether t is an empty interface type.
 func (t *Type) IsEmptyInterface() bool {
-	return t.IsInterface() && t.AllMethods().Len() == 0
+	return t.IsInterface() && len(t.AllMethods()) == 0
 }
 
 // IsScalar reports whether 't' is a scalar Go type, e.g.
@@ -1424,7 +1460,7 @@ func (t *Type) NumFields() int {
 	if t.kind == TRESULTS {
 		return len(t.extra.(*Results).Types)
 	}
-	return t.Fields().Len()
+	return len(t.Fields())
 }
 func (t *Type) FieldType(i int) *Type {
 	if t.kind == TTUPLE {
@@ -1447,6 +1483,21 @@ func (t *Type) FieldOff(i int) int64 {
 }
 func (t *Type) FieldName(i int) string {
 	return t.Field(i).Sym.Name
+}
+
+// OffsetOf reports the offset of the field of a struct.
+// The field is looked up by name.
+func (t *Type) OffsetOf(name string) int64 {
+	if t.kind != TSTRUCT {
+		base.Fatalf("can't call OffsetOf on non-struct %v", t)
+	}
+	for _, f := range t.Fields() {
+		if f.Sym.Name == name {
+			return f.Offset
+		}
+	}
+	base.Fatalf("couldn't find field %s in %v", name, t)
+	return -1
 }
 
 func (t *Type) NumElem() int64 {
@@ -1474,7 +1525,7 @@ func (t *Type) NumComponents(countBlank componentsIncludeBlankFields) int64 {
 			base.Fatalf("NumComponents func arg struct")
 		}
 		var n int64
-		for _, f := range t.FieldSlice() {
+		for _, f := range t.Fields() {
 			if countBlank == IgnoreBlankFields && f.Sym.IsBlank() {
 				continue
 			}
@@ -1591,9 +1642,17 @@ func init() {
 func NewNamed(obj Object) *Type {
 	t := newType(TFORW)
 	t.obj = obj
-	if obj.Sym().Pkg == ShapePkg {
+	sym := obj.Sym()
+	if sym.Pkg == ShapePkg {
 		t.SetIsShape(true)
 		t.SetHasShape(true)
+	}
+	if sym.Pkg.Path == "internal/runtime/sys" && sym.Name == "nih" {
+		// Recognize the special not-in-heap type. Any type including
+		// this type will also be not-in-heap.
+		// This logic is duplicated in go/types and
+		// cmd/compile/internal/types2.
+		t.SetNotInHeap(true)
 	}
 	return t
 }
@@ -1603,42 +1662,27 @@ func (t *Type) Obj() Object {
 	return t.obj
 }
 
-// typeGen tracks the number of function-scoped defined types that
-// have been declared. It's used to generate unique linker symbols for
-// their runtime type descriptors.
-var typeGen int32
-
-// SetVargen assigns a unique generation number to type t, which must
-// be a defined type declared within function scope. The generation
-// number is used to distinguish it from other similarly spelled
-// defined types from the same package.
-//
-// TODO(mdempsky): Come up with a better solution.
-func (t *Type) SetVargen() {
-	base.Assertf(t.Sym() != nil, "SetVargen on anonymous type %v", t)
-	base.Assertf(t.vargen == 0, "type %v already has Vargen %v", t, t.vargen)
-
-	typeGen++
-	t.vargen = typeGen
-}
-
 // SetUnderlying sets the underlying type of an incomplete type (i.e. type whose kind
 // is currently TFORW). SetUnderlying automatically updates any types that were waiting
 // for this type to be completed.
 func (t *Type) SetUnderlying(underlying *Type) {
 	if underlying.kind == TFORW {
 		// This type isn't computed yet; when it is, update n.
-		underlying.ForwardType().Copyto = append(underlying.ForwardType().Copyto, t)
+		underlying.forwardType().Copyto = append(underlying.forwardType().Copyto, t)
 		return
 	}
 
-	ft := t.ForwardType()
+	ft := t.forwardType()
 
 	// TODO(mdempsky): Fix Type rekinding.
 	t.kind = underlying.kind
 	t.extra = underlying.extra
 	t.width = underlying.width
 	t.align = underlying.align
+	t.alg = underlying.alg
+	t.ptrBytes = underlying.ptrBytes
+	t.intRegs = underlying.intRegs
+	t.floatRegs = underlying.floatRegs
 	t.underlying = underlying.underlying
 
 	if underlying.NotInHeap() {
@@ -1700,40 +1744,38 @@ func NewInterface(methods []*Field) *Type {
 	return t
 }
 
-const BOGUS_FUNARG_OFFSET = -1000000000
-
-func unzeroFieldOffsets(f []*Field) {
-	for i := range f {
-		f[i].Offset = BOGUS_FUNARG_OFFSET // This will cause an explosion if it is not corrected
-	}
-}
-
 // NewSignature returns a new function type for the given receiver,
 // parameters, and results, any of which may be nil.
 func NewSignature(recv *Field, params, results []*Field) *Type {
-	var recvs []*Field
+	startParams := 0
 	if recv != nil {
-		recvs = []*Field{recv}
+		startParams = 1
 	}
+	startResults := startParams + len(params)
+
+	allParams := make([]*Field, startResults+len(results))
+	if recv != nil {
+		allParams[0] = recv
+	}
+	copy(allParams[startParams:], params)
+	copy(allParams[startResults:], results)
 
 	t := newType(TFUNC)
-	ft := t.FuncType()
+	ft := t.funcType()
 
-	funargs := func(fields []*Field, funarg Funarg) *Type {
+	funargs := func(fields []*Field) *Type {
 		s := NewStruct(fields)
-		s.StructType().Funarg = funarg
+		s.StructType().ParamTuple = true
 		return s
 	}
 
-	if recv != nil {
-		recv.Offset = BOGUS_FUNARG_OFFSET
-	}
-	unzeroFieldOffsets(params)
-	unzeroFieldOffsets(results)
-	ft.Receiver = funargs(recvs, FunargRcvr)
-	ft.Params = funargs(params, FunargParams)
-	ft.Results = funargs(results, FunargResults)
-	if fieldsHasShape(recvs) || fieldsHasShape(params) || fieldsHasShape(results) {
+	ft.allParams = allParams
+	ft.startParams = startParams
+	ft.startResults = startResults
+
+	ft.resultsTuple = funargs(allParams[startResults:])
+
+	if fieldsHasShape(allParams) {
 		t.SetHasShape(true)
 	}
 
@@ -1743,10 +1785,17 @@ func NewSignature(recv *Field, params, results []*Field) *Type {
 // NewStruct returns a new struct with the given fields.
 func NewStruct(fields []*Field) *Type {
 	t := newType(TSTRUCT)
-	t.SetFields(fields)
+	t.setFields(fields)
 	if fieldsHasShape(fields) {
 		t.SetHasShape(true)
 	}
+	for _, f := range fields {
+		if f.Type.NotInHeap() {
+			t.SetNotInHeap(true)
+			break
+		}
+	}
+
 	return t
 }
 
@@ -1792,7 +1841,7 @@ func IsReflexive(t *Type) bool {
 		return IsReflexive(t.Elem())
 
 	case TSTRUCT:
-		for _, t1 := range t.Fields().Slice() {
+		for _, t1 := range t.Fields() {
 			if !IsReflexive(t1.Type) {
 				return false
 			}
@@ -1845,44 +1894,39 @@ func IsMethodApplicable(t *Type, m *Field) bool {
 	return t.IsPtr() || !m.Type.Recv().Type.IsPtr() || IsInterfaceMethod(m.Type) || m.Embedded == 2
 }
 
-// IsRuntimePkg reports whether p is package runtime.
-func IsRuntimePkg(p *Pkg) bool {
-	if base.Flag.CompilingRuntime && p == LocalPkg {
-		return true
+// RuntimeSymName returns the name of s if it's in package "runtime"; otherwise
+// it returns "".
+func RuntimeSymName(s *Sym) string {
+	if s.Pkg.Path == "runtime" {
+		return s.Name
 	}
-	return p.Path == "runtime"
+	return ""
 }
 
-// IsReflectPkg reports whether p is package reflect.
-func IsReflectPkg(p *Pkg) bool {
-	return p.Path == "reflect"
-}
-
-// IsTypePkg reports whether p is pesudo package type.
-func IsTypePkg(p *Pkg) bool {
-	return p == typepkg
+// ReflectSymName returns the name of s if it's in package "reflect"; otherwise
+// it returns "".
+func ReflectSymName(s *Sym) string {
+	if s.Pkg.Path == "reflect" {
+		return s.Name
+	}
+	return ""
 }
 
 // IsNoInstrumentPkg reports whether p is a package that
 // should not be instrumented.
 func IsNoInstrumentPkg(p *Pkg) bool {
-	for _, np := range base.NoInstrumentPkgs {
-		if p.Path == np {
-			return true
-		}
-	}
-	return false
+	return objabi.LookupPkgSpecial(p.Path).NoInstrument
 }
 
 // IsNoRacePkg reports whether p is a package that
 // should not be race instrumented.
 func IsNoRacePkg(p *Pkg) bool {
-	for _, np := range base.NoRacePkgs {
-		if p.Path == np {
-			return true
-		}
-	}
-	return false
+	return objabi.LookupPkgSpecial(p.Path).NoRaceFunc
+}
+
+// IsRuntimePkg reports whether p is a runtime package.
+func IsRuntimePkg(p *Pkg) bool {
+	return objabi.LookupPkgSpecial(p.Path).Runtime
 }
 
 // ReceiverBaseType returns the underlying type, if any,

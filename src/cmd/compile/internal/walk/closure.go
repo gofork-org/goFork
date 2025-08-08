@@ -30,10 +30,10 @@ import (
 //		(*&byref)++
 //	}(byval, &byref, 42)
 func directClosureCall(n *ir.CallExpr) {
-	clo := n.X.(*ir.ClosureExpr)
+	clo := n.Fun.(*ir.ClosureExpr)
 	clofn := clo.Func
 
-	if ir.IsTrivialClosure(clo) {
+	if !clofn.IsClosure() {
 		return // leave for walkClosure to handle
 	}
 
@@ -47,9 +47,8 @@ func directClosureCall(n *ir.CallExpr) {
 			// and v remains PAUTOHEAP with &v heapaddr
 			// (accesses will implicitly deref &v).
 
-			addr := ir.NewNameAt(clofn.Pos(), typecheck.Lookup("&"+v.Sym().Name))
+			addr := ir.NewNameAt(clofn.Pos(), typecheck.Lookup("&"+v.Sym().Name), types.NewPtr(v.Type()))
 			addr.Curfn = clofn
-			addr.SetType(types.NewPtr(v.Type()))
 			v.Heapaddr = addr
 			v = addr
 		}
@@ -68,12 +67,12 @@ func directClosureCall(n *ir.CallExpr) {
 
 	// Create new function type with parameters prepended, and
 	// then update type and declarations.
-	typ = types.NewSignature(nil, append(params, typ.Params().FieldSlice()...), typ.Results().FieldSlice())
+	typ = types.NewSignature(nil, append(params, typ.Params()...), typ.Results())
 	f.SetType(typ)
 	clofn.Dcl = append(decls, clofn.Dcl...)
 
 	// Rewrite call.
-	n.X = f
+	n.Fun = f
 	n.Args.Prepend(closureArgs(clo)...)
 
 	// Update the call expression's type. We need to do this
@@ -81,23 +80,22 @@ func directClosureCall(n *ir.CallExpr) {
 	// node, but we only rewrote the ONAME node's type. Logically,
 	// they're the same, but the stack offsets probably changed.
 	if typ.NumResults() == 1 {
-		n.SetType(typ.Results().Field(0).Type)
+		n.SetType(typ.Result(0).Type)
 	} else {
-		n.SetType(typ.Results())
+		n.SetType(typ.ResultsTuple())
 	}
 
 	// Add to Closures for enqueueFunc. It's no longer a proper
 	// closure, but we may have already skipped over it in the
-	// functions list as a non-trivial closure, so this just
-	// ensures it's compiled.
+	// functions list, so this just ensures it's compiled.
 	ir.CurFunc.Closures = append(ir.CurFunc.Closures, clofn)
 }
 
 func walkClosure(clo *ir.ClosureExpr, init *ir.Nodes) ir.Node {
 	clofn := clo.Func
 
-	// If no closure vars, don't bother wrapping.
-	if ir.IsTrivialClosure(clo) {
+	// If not a closure, don't bother wrapping.
+	if !clofn.IsClosure() {
 		if base.Debug.Closure > 0 {
 			base.WarnfAt(clo.Pos(), "closure converted to global")
 		}
@@ -145,7 +143,7 @@ func walkClosure(clo *ir.ClosureExpr, init *ir.Nodes) ir.Node {
 	return walkExpr(cfn, init)
 }
 
-// closureArgs returns a slice of expressions that an be used to
+// closureArgs returns a slice of expressions that can be used to
 // initialize the given closure's free variables. These correspond
 // one-to-one with the variables in clo.Func.ClosureVars, and will be
 // either an ONAME node (if the variable is captured by value) or an

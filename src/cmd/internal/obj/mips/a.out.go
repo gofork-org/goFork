@@ -275,6 +275,7 @@ const (
 	NSCHED = 20
 )
 
+//go:generate go run ../mkcnames.go -i a.out.go -o anames0.go -p mips
 const (
 	C_NONE = iota
 	C_REG
@@ -394,6 +395,8 @@ const (
 	AROTRV
 	ASC
 	ASCV
+	ASEB
+	ASEH
 	ASGT
 	ASGTU
 	ASLL
@@ -415,6 +418,7 @@ const (
 	ATLBWR
 	ATNE
 	AWORD
+	AWSBH
 	AXOR
 
 	/* 64-bit */
@@ -434,6 +438,8 @@ const (
 	AADDVU
 	ASUBV
 	ASUBVU
+	ADSBH
+	ADSHD
 
 	/* 64-bit FP */
 	ATRUNCFV

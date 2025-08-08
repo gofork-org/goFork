@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -253,7 +252,10 @@ var ptrTests = []ptrTest{
 	{
 		// Exported functions may not return Go pointers.
 		name: "export1",
-		c:    `extern unsigned char *GoFn21();`,
+		c: `#ifdef _WIN32
+		    __declspec(dllexport)
+			#endif
+		    extern unsigned char *GoFn21();`,
 		support: `//export GoFn21
 		          func GoFn21() *byte { return new(byte) }`,
 		body: `C.GoFn21()`,
@@ -263,6 +265,9 @@ var ptrTests = []ptrTest{
 		// Returning a C pointer is fine.
 		name: "exportok",
 		c: `#include <stdlib.h>
+		    #ifdef _WIN32
+		    __declspec(dllexport)
+			#endif
 		    extern unsigned char *GoFn22();`,
 		support: `//export GoFn22
 		          func GoFn22() *byte { return (*byte)(C.malloc(1)) }`,
@@ -467,15 +472,28 @@ var ptrTests = []ptrTest{
 		body:    `s := struct { a [4]byte; p *int }{p: new(int)}; C.f43(unsafe.Pointer(unsafe.SliceData(s.a[:])))`,
 		fail:    false,
 	},
+	{
+		// Passing the address of an element of a pointer-to-array.
+		name:    "arraypointer",
+		c:       `void f44(void* p) {}`,
+		imports: []string{"unsafe"},
+		body:    `a := new([10]byte); C.f44(unsafe.Pointer(&a[0]))`,
+		fail:    false,
+	},
+	{
+		// Passing the address of an element of a pointer-to-array
+		// that contains a Go pointer.
+		name:    "arraypointer2",
+		c:       `void f45(void** p) {}`,
+		imports: []string{"unsafe"},
+		body:    `i := 0; a := &[2]unsafe.Pointer{nil, unsafe.Pointer(&i)}; C.f45(&a[0])`,
+		fail:    true,
+	},
 }
 
 func TestPointerChecks(t *testing.T) {
 	testenv.MustHaveGoBuild(t)
 	testenv.MustHaveCGO(t)
-	if runtime.GOOS == "windows" {
-		// TODO: Skip just the cases that fail?
-		t.Skipf("some tests fail to build on %s", runtime.GOOS)
-	}
 
 	var gopath string
 	var dir string
@@ -606,7 +624,7 @@ func buildPtrTests(t *testing.T, gopath string, cgocheck2 bool) (exe string) {
 		goexperiment = append(goexperiment, "cgocheck2")
 		changed = true
 	} else if !cgocheck2 && i >= 0 {
-		goexperiment = append(goexperiment[:i], goexperiment[i+1:]...)
+		goexperiment = slices.Delete(goexperiment, i, i+1)
 		changed = true
 	}
 	if changed {

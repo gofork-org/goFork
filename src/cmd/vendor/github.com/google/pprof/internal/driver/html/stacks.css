@@ -14,13 +14,26 @@ body {
   width: 100%;
   position: relative; /* Allows absolute positioning of child boxes */
 }
-/* Shows details of frame that is under the mouse */
+/* Holder for current frame details. */
 #current-details {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  z-index: 2;
+  position: relative;
+  background: #eee; /* Light grey gives better contrast with boxes */
   font-size: 12pt;
+  padding: 0 4px;
+  width: 100%;
+}
+/* Shows details of frame that is under the mouse */
+#current-details-left {
+  float: left;
+  max-width: 60%;
+  white-space: nowrap;
+  overflow-x: hidden;
+}
+#current-details-right {
+  float: right;
+  max-width: 40%;
+  white-space: nowrap;
+  overflow-x: hidden;
 }
 /* Background of a single flame-graph frame */
 .boxbg {
@@ -28,7 +41,10 @@ body {
   position: absolute;
   overflow: hidden;
   box-sizing: border-box;
+  background: #d8d8d8;
 }
+.positive { position: absolute; background: #caa; }
+.negative { position: absolute; background: #aca; }
 /* Not-inlined frames are visually separated from their caller. */
 .not-inlined {
   border-top: 1px solid black;
@@ -47,11 +63,6 @@ body {
 /* Box highlighting via shadows to avoid size changes */
 .hilite { box-shadow: 0px 0px 0px 2px #000; z-index: 1; }
 .hilite2 { box-shadow: 0px 0px 0px 2px #000; z-index: 1; }
-/* Self-cost region inside a box */
-.self {
-  position: absolute;
-  background: rgba(0,0,0,0.25); /* Darker hue */
-}
 /* Gap left between callers and callees */
 .separator {
   position: absolute;
@@ -59,8 +70,6 @@ body {
   font-size: 12pt;
   font-weight: bold;
 }
-/* Ensure that pprof menu is above boxes */
-.submenu { z-index: 3; }
 /* Right-click menu */
 #action-menu {
   max-width: 15em;

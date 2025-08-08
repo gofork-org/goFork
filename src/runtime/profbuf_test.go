@@ -5,8 +5,8 @@
 package runtime_test
 
 import (
-	"reflect"
 	. "runtime"
+	"slices"
 	"testing"
 	"time"
 	"unsafe"
@@ -20,7 +20,7 @@ func TestProfBuf(t *testing.T) {
 	}
 	read := func(t *testing.T, b *ProfBuf, data []uint64, tags []unsafe.Pointer) {
 		rdata, rtags, eof := b.Read(ProfBufNonBlocking)
-		if !reflect.DeepEqual(rdata, data) || !reflect.DeepEqual(rtags, tags) {
+		if !slices.Equal(rdata, data) || !slices.Equal(rtags, tags) {
 			t.Fatalf("unexpected profile read:\nhave data %#x\nwant data %#x\nhave tags %#x\nwant tags %#x", rdata, data, rtags, tags)
 		}
 		if eof {
@@ -32,20 +32,14 @@ func TestProfBuf(t *testing.T) {
 		go func() {
 			eof := data == nil
 			rdata, rtags, reof := b.Read(ProfBufBlocking)
-			if !reflect.DeepEqual(rdata, data) || !reflect.DeepEqual(rtags, tags) || reof != eof {
+			if !slices.Equal(rdata, data) || !slices.Equal(rtags, tags) || reof != eof {
 				// Errorf, not Fatalf, because called in goroutine.
 				t.Errorf("unexpected profile read:\nhave data %#x\nwant data %#x\nhave tags %#x\nwant tags %#x\nhave eof=%v, want %v", rdata, data, rtags, tags, reof, eof)
 			}
 			c <- 1
 		}()
 		time.Sleep(10 * time.Millisecond) // let goroutine run and block
-		return func() {
-			select {
-			case <-c:
-			case <-time.After(1 * time.Second):
-				t.Fatalf("timeout waiting for blocked read")
-			}
-		}
+		return func() { <-c }
 	}
 	readEOF := func(t *testing.T, b *ProfBuf) {
 		rdata, rtags, eof := b.Read(ProfBufBlocking)

@@ -1,5 +1,7 @@
 // errorcheck -0 -m
 
+//go:build !goexperiment.newinliner
+
 // Copyright 2010 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -23,7 +25,7 @@ func f1() {
 	// Escape analysis used to miss inlined code in closures.
 
 	func() { // ERROR "can inline f1.func1"
-		p = alloc(3) // ERROR "inlining call to alloc"
+		p = alloc(3) // ERROR "inlining call to alloc" "moved to heap: x"
 	}() // ERROR "inlining call to f1.func1" "inlining call to alloc" "moved to heap: x"
 
 	f = func() { // ERROR "func literal escapes to heap" "can inline f1.func2"

@@ -58,8 +58,8 @@ func (mode *BuildMode) Set(s string) error {
 	return nil
 }
 
-func (mode *BuildMode) String() string {
-	switch *mode {
+func (mode BuildMode) String() string {
+	switch mode {
 	case BuildModeUnset:
 		return "" // avoid showing a default in usage message
 	case BuildModeExe:
@@ -75,7 +75,7 @@ func (mode *BuildMode) String() string {
 	case BuildModePlugin:
 		return "plugin"
 	}
-	return fmt.Sprintf("BuildMode(%d)", uint8(*mode))
+	return fmt.Sprintf("BuildMode(%d)", uint8(mode))
 }
 
 // LinkMode indicates whether an external linker is used for the final link.
@@ -145,6 +145,9 @@ func mustLinkExternal(ctxt *Link) (res bool, reason string) {
 	case BuildModeCArchive:
 		return true, "buildmode=c-archive"
 	case BuildModeCShared:
+		if buildcfg.GOARCH == "wasm" {
+			break
+		}
 		return true, "buildmode=c-shared"
 	case BuildModePIE:
 		if !platform.InternalLinkPIESupported(buildcfg.GOOS, buildcfg.GOARCH) {
@@ -217,7 +220,7 @@ func determineLinkMode(ctxt *Link) {
 		}
 	case LinkExternal:
 		switch {
-		case buildcfg.GOARCH == "ppc64" && buildcfg.GOOS != "aix":
+		case buildcfg.GOARCH == "ppc64" && buildcfg.GOOS == "linux":
 			Exitf("external linking not supported for %s/ppc64", buildcfg.GOOS)
 		}
 	}

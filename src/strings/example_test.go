@@ -80,6 +80,17 @@ func ExampleContainsRune() {
 	// false
 }
 
+func ExampleContainsFunc() {
+	f := func(r rune) bool {
+		return r == 'a' || r == 'e' || r == 'i' || r == 'o' || r == 'u'
+	}
+	fmt.Println(strings.ContainsFunc("hello", f))
+	fmt.Println(strings.ContainsFunc("rhythms", f))
+	// Output:
+	// true
+	// false
+}
+
 func ExampleCount() {
 	fmt.Println(strings.Count("cheese", "e"))
 	fmt.Println(strings.Count("five", "")) // before & after each rune
@@ -317,22 +328,22 @@ func ExampleTitle() {
 	// Compare this example to the ToTitle example.
 	fmt.Println(strings.Title("her royal highness"))
 	fmt.Println(strings.Title("loud noises"))
-	fmt.Println(strings.Title("хлеб"))
+	fmt.Println(strings.Title("брат"))
 	// Output:
 	// Her Royal Highness
 	// Loud Noises
-	// Хлеб
+	// Брат
 }
 
 func ExampleToTitle() {
 	// Compare this example to the Title example.
 	fmt.Println(strings.ToTitle("her royal highness"))
 	fmt.Println(strings.ToTitle("loud noises"))
-	fmt.Println(strings.ToTitle("хлеб"))
+	fmt.Println(strings.ToTitle("брат"))
 	// Output:
 	// HER ROYAL HIGHNESS
 	// LOUD NOISES
-	// ХЛЕБ
+	// БРАТ
 }
 
 func ExampleToTitleSpecial() {
@@ -377,8 +388,8 @@ func ExampleToLower() {
 }
 
 func ExampleToLowerSpecial() {
-	fmt.Println(strings.ToLowerSpecial(unicode.TurkishCase, "Önnek İş"))
-	// Output: önnek iş
+	fmt.Println(strings.ToLowerSpecial(unicode.TurkishCase, "Örnek İş"))
+	// Output: örnek iş
 }
 
 func ExampleTrim() {

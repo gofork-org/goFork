@@ -6,7 +6,8 @@ package runtime
 
 import (
 	"internal/abi"
-	"runtime/internal/sys"
+	"internal/runtime/sys"
+	"internal/stringslite"
 )
 
 func XTestInlineUnwinder(t TestingT) {
@@ -34,10 +35,9 @@ func XTestInlineUnwinder(t TestingT) {
 
 	// Iterate over the PCs in tiuTest and walk the inline stack for each.
 	prevStack := "x"
-	var cache pcvalueCache
 	for pc := pc1; pc < pc1+1024 && findfunc(pc) == f; pc += sys.PCQuantum {
 		stack := ""
-		u, uf := newInlineUnwinder(f, pc, &cache)
+		u, uf := newInlineUnwinder(f, pc)
 		if file, _ := u.fileLine(uf); file == "?" {
 			// We're probably in the trailing function padding, where findfunc
 			// still returns f but there's no symbolic information. Just keep
@@ -51,7 +51,7 @@ func XTestInlineUnwinder(t TestingT) {
 		for ; uf.valid(); uf = u.next(uf) {
 			file, line := u.fileLine(uf)
 			const wantFile = "symtabinl_test.go"
-			if !hasSuffix(file, wantFile) {
+			if !stringslite.HasSuffix(file, wantFile) {
 				t.Errorf("tiuTest+%#x: want file ...%s, got %s", pc-pc1, wantFile, file)
 			}
 
@@ -59,10 +59,10 @@ func XTestInlineUnwinder(t TestingT) {
 
 			name := sf.name()
 			const namePrefix = "runtime."
-			if hasPrefix(name, namePrefix) {
+			if stringslite.HasPrefix(name, namePrefix) {
 				name = name[len(namePrefix):]
 			}
-			if !hasPrefix(name, "tiu") {
+			if !stringslite.HasPrefix(name, "tiu") {
 				t.Errorf("tiuTest+%#x: unexpected function %s", pc-pc1, name)
 			}
 
@@ -107,16 +107,17 @@ func lineNumber() int {
 // Below here is the test data for XTestInlineUnwinder
 
 var tiuStart = lineNumber() // +0
-var tiu1, tiu2, tiu3 int    // +1
-func tiuInlined1() { // +2
-	tiu1++ // +3
+var tiu2, tiu3 int          // +1
+func tiuInlined1(i int) { // +2
+	tiu1[i]++ // +3
 } // +4
 func tiuInlined2() { // +5
-	tiuInlined1() // +6
-	tiu2++        // +7
+	tiuInlined1(1) // +6
+	tiu2++         // +7
 } // +8
 func tiuTest() { // +9
-	tiuInlined1() // +10
-	tiuInlined2() // +11
-	tiu3++        // +12
-} // +13
+	tiuInlined1(0) // +10
+	tiuInlined2()  // +11
+	tiu3++         // +12
+}               // +13
+var tiu1 [2]int // +14

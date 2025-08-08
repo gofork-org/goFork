@@ -51,7 +51,7 @@ var cases = []testcase{
 }
 
 // TestLoopVar checks that the GOEXPERIMENT and debug flags behave as expected.
-func TestLoopVar(t *testing.T) {
+func TestLoopVarGo1_21(t *testing.T) {
 	switch runtime.GOOS {
 	case "linux", "darwin":
 	default:
@@ -71,7 +71,7 @@ func TestLoopVar(t *testing.T) {
 	for i, tc := range cases {
 		for _, f := range tc.files {
 			source := f
-			cmd := testenv.Command(t, gocmd, "build", "-o", output, "-gcflags=-d=loopvar="+tc.lvFlag, source)
+			cmd := testenv.Command(t, gocmd, "build", "-o", output, "-gcflags=-lang=go1.21 -d=loopvar="+tc.lvFlag, source)
 			cmd.Env = append(cmd.Env, "GOEXPERIMENT=loopvar", "HOME="+tmpdir)
 			cmd.Dir = "testdata"
 			t.Logf("File %s loopvar=%s expect '%s' exit code %d", f, tc.lvFlag, tc.buildExpect, tc.expectRC)
@@ -103,7 +103,7 @@ func TestLoopVar(t *testing.T) {
 	}
 }
 
-func TestLoopVarInlines(t *testing.T) {
+func TestLoopVarInlinesGo1_21(t *testing.T) {
 	switch runtime.GOOS {
 	case "linux", "darwin":
 	default:
@@ -125,7 +125,7 @@ func TestLoopVarInlines(t *testing.T) {
 		// This disables the loopvar change, except for the specified package.
 		// The effect should follow the package, even though everything (except "c")
 		// is inlined.
-		cmd := testenv.Command(t, gocmd, "run", "-gcflags="+pkg+"=-d=loopvar=1", root)
+		cmd := testenv.Command(t, gocmd, "run", "-gcflags="+root+"/...=-lang=go1.21", "-gcflags="+pkg+"=-d=loopvar=1", root)
 		cmd.Env = append(cmd.Env, "GOEXPERIMENT=noloopvar", "HOME="+tmpdir)
 		cmd.Dir = filepath.Join("testdata", "inlines")
 
@@ -141,10 +141,10 @@ func TestLoopVarInlines(t *testing.T) {
 	c := f(root + "/c")
 	m := f(root)
 
-	t.Logf(a)
-	t.Logf(b)
-	t.Logf(c)
-	t.Logf(m)
+	t.Log(a)
+	t.Log(b)
+	t.Log(c)
+	t.Log(m)
 
 	if !strings.Contains(a, "f, af, bf, abf, cf sums = 100, 45, 100, 100, 100") {
 		t.Errorf("Did not see expected value of a")
@@ -166,6 +166,7 @@ func countMatches(s, re string) int {
 }
 
 func TestLoopVarHashes(t *testing.T) {
+	// This behavior does not depend on Go version (1.21 or greater)
 	switch runtime.GOOS {
 	case "linux", "darwin":
 	default:
@@ -187,7 +188,7 @@ func TestLoopVarHashes(t *testing.T) {
 		// This disables the loopvar change, except for the specified hash pattern.
 		// -trimpath is necessary so we get the same answer no matter where the
 		// Go repository is checked out. This is not normally a concern since people
-		// do not rely on the meaning of specific hashes.
+		// do not normally rely on the meaning of specific hashes.
 		cmd := testenv.Command(t, gocmd, "run", "-trimpath", root)
 		cmd.Env = append(cmd.Env, "GOCOMPILEDEBUG=loopvarhash="+hash, "HOME="+tmpdir)
 		cmd.Dir = filepath.Join("testdata", "inlines")
@@ -199,7 +200,7 @@ func TestLoopVarHashes(t *testing.T) {
 
 	for _, arg := range []string{"v001100110110110010100100", "vx336ca4"} {
 		m := f(arg)
-		t.Logf(m)
+		t.Log(m)
 
 		mCount := countMatches(m, "loopvarhash triggered cmd/compile/internal/loopvar/testdata/inlines/main.go:27:6: .* 001100110110110010100100")
 		otherCount := strings.Count(m, "loopvarhash")
@@ -225,7 +226,8 @@ func TestLoopVarHashes(t *testing.T) {
 	}
 }
 
-func TestLoopVarOpt(t *testing.T) {
+// TestLoopVarVersionEnableFlag checks for loopvar transformation enabled by command line flag (1.22).
+func TestLoopVarVersionEnableFlag(t *testing.T) {
 	switch runtime.GOOS {
 	case "linux", "darwin":
 	default:
@@ -240,15 +242,16 @@ func TestLoopVarOpt(t *testing.T) {
 	testenv.MustHaveGoBuild(t)
 	gocmd := testenv.GoToolPath(t)
 
-	cmd := testenv.Command(t, gocmd, "run", "-gcflags=-d=loopvar=2", "opt.go")
+	// loopvar=3 logs info but does not change loopvarness
+	cmd := testenv.Command(t, gocmd, "run", "-gcflags=-lang=go1.22 -d=loopvar=3", "opt.go")
 	cmd.Dir = filepath.Join("testdata")
 
 	b, err := cmd.CombinedOutput()
 	m := string(b)
 
-	t.Logf(m)
+	t.Log(m)
 
-	yCount := strings.Count(m, "opt.go:16:6: loop variable private now per-iteration, heap-allocated (loop inlined into ./opt.go:30)")
+	yCount := strings.Count(m, "opt.go:16:6: loop variable private now per-iteration, heap-allocated (loop inlined into ./opt.go:29)")
 	nCount := strings.Count(m, "shared")
 
 	if yCount != 1 {
@@ -260,5 +263,121 @@ func TestLoopVarOpt(t *testing.T) {
 	if err != nil {
 		t.Errorf("err=%v != nil", err)
 	}
+}
 
+// TestLoopVarVersionEnableGoBuild checks for loopvar transformation enabled by go:build version (1.22).
+func TestLoopVarVersionEnableGoBuild(t *testing.T) {
+	switch runtime.GOOS {
+	case "linux", "darwin":
+	default:
+		t.Skipf("Slow test, usually avoid it, os=%s not linux or darwin", runtime.GOOS)
+	}
+	switch runtime.GOARCH {
+	case "amd64", "arm64":
+	default:
+		t.Skipf("Slow test, usually avoid it, arch=%s not amd64 or arm64", runtime.GOARCH)
+	}
+
+	testenv.MustHaveGoBuild(t)
+	gocmd := testenv.GoToolPath(t)
+
+	// loopvar=3 logs info but does not change loopvarness
+	cmd := testenv.Command(t, gocmd, "run", "-gcflags=-lang=go1.21 -d=loopvar=3", "opt-122.go")
+	cmd.Dir = filepath.Join("testdata")
+
+	b, err := cmd.CombinedOutput()
+	m := string(b)
+
+	t.Log(m)
+
+	yCount := strings.Count(m, "opt-122.go:18:6: loop variable private now per-iteration, heap-allocated (loop inlined into ./opt-122.go:31)")
+	nCount := strings.Count(m, "shared")
+
+	if yCount != 1 {
+		t.Errorf("yCount=%d != 1", yCount)
+	}
+	if nCount > 0 {
+		t.Errorf("nCount=%d > 0", nCount)
+	}
+	if err != nil {
+		t.Errorf("err=%v != nil", err)
+	}
+}
+
+// TestLoopVarVersionDisableFlag checks for loopvar transformation DISABLED by command line version (1.21).
+func TestLoopVarVersionDisableFlag(t *testing.T) {
+	switch runtime.GOOS {
+	case "linux", "darwin":
+	default:
+		t.Skipf("Slow test, usually avoid it, os=%s not linux or darwin", runtime.GOOS)
+	}
+	switch runtime.GOARCH {
+	case "amd64", "arm64":
+	default:
+		t.Skipf("Slow test, usually avoid it, arch=%s not amd64 or arm64", runtime.GOARCH)
+	}
+
+	testenv.MustHaveGoBuild(t)
+	gocmd := testenv.GoToolPath(t)
+
+	// loopvar=3 logs info but does not change loopvarness
+	cmd := testenv.Command(t, gocmd, "run", "-gcflags=-lang=go1.21 -d=loopvar=3", "opt.go")
+	cmd.Dir = filepath.Join("testdata")
+
+	b, err := cmd.CombinedOutput()
+	m := string(b)
+
+	t.Log(m) // expect error
+
+	yCount := strings.Count(m, "opt.go:16:6: loop variable private now per-iteration, heap-allocated (loop inlined into ./opt.go:29)")
+	nCount := strings.Count(m, "shared")
+
+	if yCount != 0 {
+		t.Errorf("yCount=%d != 0", yCount)
+	}
+	if nCount > 0 {
+		t.Errorf("nCount=%d > 0", nCount)
+	}
+	if err == nil { // expect error
+		t.Errorf("err=%v == nil", err)
+	}
+}
+
+// TestLoopVarVersionDisableGoBuild checks for loopvar transformation DISABLED by go:build version (1.21).
+func TestLoopVarVersionDisableGoBuild(t *testing.T) {
+	switch runtime.GOOS {
+	case "linux", "darwin":
+	default:
+		t.Skipf("Slow test, usually avoid it, os=%s not linux or darwin", runtime.GOOS)
+	}
+	switch runtime.GOARCH {
+	case "amd64", "arm64":
+	default:
+		t.Skipf("Slow test, usually avoid it, arch=%s not amd64 or arm64", runtime.GOARCH)
+	}
+
+	testenv.MustHaveGoBuild(t)
+	gocmd := testenv.GoToolPath(t)
+
+	// loopvar=3 logs info but does not change loopvarness
+	cmd := testenv.Command(t, gocmd, "run", "-gcflags=-lang=go1.22 -d=loopvar=3", "opt-121.go")
+	cmd.Dir = filepath.Join("testdata")
+
+	b, err := cmd.CombinedOutput()
+	m := string(b)
+
+	t.Log(m) // expect error
+
+	yCount := strings.Count(m, "opt-121.go:18:6: loop variable private now per-iteration, heap-allocated (loop inlined into ./opt-121.go:31)")
+	nCount := strings.Count(m, "shared")
+
+	if yCount != 0 {
+		t.Errorf("yCount=%d != 0", yCount)
+	}
+	if nCount > 0 {
+		t.Errorf("nCount=%d > 0", nCount)
+	}
+	if err == nil { // expect error
+		t.Errorf("err=%v == nil", err)
+	}
 }

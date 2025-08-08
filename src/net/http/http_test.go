@@ -12,9 +12,8 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
-	"os/exec"
-	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -42,7 +41,7 @@ func TestForeachHeaderElement(t *testing.T) {
 		foreachHeaderElement(tt.in, func(v string) {
 			got = append(got, v)
 		})
-		if !reflect.DeepEqual(got, tt.want) {
+		if !slices.Equal(got, tt.want) {
 			t.Errorf("foreachHeaderElement(%q) = %q; want %q", tt.in, got, tt.want)
 		}
 	}
@@ -55,7 +54,7 @@ func TestForeachHeaderElement(t *testing.T) {
 func TestCmdGoNoHTTPServer(t *testing.T) {
 	t.Parallel()
 	goBin := testenv.GoToolPath(t)
-	out, err := exec.Command(goBin, "tool", "nm", goBin).CombinedOutput()
+	out, err := testenv.Command(t, goBin, "tool", "nm", goBin).CombinedOutput()
 	if err != nil {
 		t.Fatalf("go tool nm: %v: %s", err, out)
 	}
@@ -89,7 +88,7 @@ func TestOmitHTTP2(t *testing.T) {
 	}
 	t.Parallel()
 	goTool := testenv.GoToolPath(t)
-	out, err := exec.Command(goTool, "test", "-short", "-tags=nethttpomithttp2", "net/http").CombinedOutput()
+	out, err := testenv.Command(t, goTool, "test", "-short", "-tags=nethttpomithttp2", "net/http").CombinedOutput()
 	if err != nil {
 		t.Fatalf("go test -short failed: %v, %s", err, out)
 	}
@@ -101,7 +100,7 @@ func TestOmitHTTP2(t *testing.T) {
 func TestOmitHTTP2Vet(t *testing.T) {
 	t.Parallel()
 	goTool := testenv.GoToolPath(t)
-	out, err := exec.Command(goTool, "vet", "-tags=nethttpomithttp2", "net/http").CombinedOutput()
+	out, err := testenv.Command(t, goTool, "vet", "-tags=nethttpomithttp2", "net/http").CombinedOutput()
 	if err != nil {
 		t.Fatalf("go vet failed: %v, %s", err, out)
 	}
@@ -152,9 +151,7 @@ var forbiddenStringsFunctions = map[string]bool{
 // strings and bytes package functions. HTTP is mostly ASCII based, and doing
 // Unicode-aware case folding or space stripping can introduce vulnerabilities.
 func TestNoUnicodeStrings(t *testing.T) {
-	if !testenv.HasSrc() {
-		t.Skip("source code not available")
-	}
+	testenv.MustHaveSource(t)
 
 	re := regexp.MustCompile(`(strings|bytes).([A-Za-z]+)`)
 	if err := fs.WalkDir(os.DirFS("."), ".", func(path string, d fs.DirEntry, err error) error {
@@ -187,6 +184,28 @@ func TestNoUnicodeStrings(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestProtocols(t *testing.T) {
+	var p Protocols
+	if p.HTTP1() {
+		t.Errorf("zero-value protocols: p.HTTP1() = true, want false")
+	}
+	p.SetHTTP1(true)
+	p.SetHTTP2(true)
+	if !p.HTTP1() {
+		t.Errorf("initialized protocols: p.HTTP1() = false, want true")
+	}
+	if !p.HTTP2() {
+		t.Errorf("initialized protocols: p.HTTP2() = false, want true")
+	}
+	p.SetHTTP1(false)
+	if p.HTTP1() {
+		t.Errorf("after unsetting HTTP1: p.HTTP1() = true, want false")
+	}
+	if !p.HTTP2() {
+		t.Errorf("after unsetting HTTP1: p.HTTP2() = false, want true")
 	}
 }
 

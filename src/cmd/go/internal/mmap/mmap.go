@@ -1,4 +1,4 @@
-// Copyright 2011 The Go Authors.  All rights reserved.
+// Copyright 2011 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -22,10 +22,11 @@ type Data struct {
 }
 
 // Mmap maps the given file into memory.
-func Mmap(file string) (Data, error) {
+func Mmap(file string) (Data, bool, error) {
 	f, err := os.Open(file)
 	if err != nil {
-		return Data{}, err
+		return Data{}, false, err
 	}
-	return mmapFile(f)
+	data, err := mmapFile(f)
+	return data, true, err
 }

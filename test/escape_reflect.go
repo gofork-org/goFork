@@ -115,7 +115,7 @@ func is2(x [2]int) bool {
 	return v.IsValid() || v.IsNil() || v.IsZero()
 }
 
-func is3(x struct { a, b int }) bool {
+func is3(x struct{ a, b int }) bool {
 	v := reflect.ValueOf(x) // ERROR "x does not escape"
 	return v.IsValid() || v.IsNil() || v.IsZero()
 }
@@ -352,9 +352,9 @@ func select2(ch chan string, x string) { // ERROR "leaking param: ch$" "leaking 
 }
 
 var (
-	intTyp    = reflect.TypeOf(int(0))     // ERROR "int\(0\) does not escape"
+	intTyp    = reflect.TypeOf(int(0))     // ERROR "0 does not escape"
 	uintTyp   = reflect.TypeOf(uint(0))    // ERROR "uint\(0\) does not escape"
-	stringTyp = reflect.TypeOf(string("")) // ERROR "string\(.*\) does not escape"
+	stringTyp = reflect.TypeOf(string("")) // ERROR ".. does not escape"
 	bytesTyp  = reflect.TypeOf([]byte{})   // ERROR "\[\]byte{} does not escape"
 )
 
@@ -423,7 +423,7 @@ func mapdelete(m map[string]string, k string) { // ERROR "m does not escape" "le
 }
 
 // Unfortunate: v doesn't need to leak.
-func setiterkey1(v reflect.Value, it *reflect.MapIter) { // ERROR "leaking param: v$" "it does not escape"
+func setiterkey1(v reflect.Value, it *reflect.MapIter) { // ERROR "leaking param: v$" "leaking param content: it$"
 	v.SetIterKey(it)
 }
 
@@ -434,7 +434,7 @@ func setiterkey2(v reflect.Value, m map[string]string) { // ERROR "leaking param
 }
 
 // Unfortunate: v doesn't need to leak.
-func setitervalue1(v reflect.Value, it *reflect.MapIter) { // ERROR "leaking param: v$" "it does not escape"
+func setitervalue1(v reflect.Value, it *reflect.MapIter) { // ERROR "leaking param: v$" "leaking param content: it$"
 	v.SetIterValue(it)
 }
 

@@ -8,6 +8,7 @@ import (
 	"encoding"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"sync"
@@ -24,7 +25,7 @@ type userTypeInfo struct {
 	base        reflect.Type // the base type after all indirections
 	indir       int          // number of indirections to reach the base type
 	externalEnc int          // xGob, xBinary, or xText
-	externalDec int          // xGob, xBinary or xText
+	externalDec int          // xGob, xBinary, or xText
 	encIndir    int8         // number of indirections to reach the receiver type; may be negative
 	decIndir    int8         // number of indirections to reach the receiver type; may be negative
 }
@@ -103,14 +104,14 @@ func validUserType(rt reflect.Type) (*userTypeInfo, error) {
 }
 
 var (
-	gobEncoderInterfaceType        = reflect.TypeOf((*GobEncoder)(nil)).Elem()
-	gobDecoderInterfaceType        = reflect.TypeOf((*GobDecoder)(nil)).Elem()
-	binaryMarshalerInterfaceType   = reflect.TypeOf((*encoding.BinaryMarshaler)(nil)).Elem()
-	binaryUnmarshalerInterfaceType = reflect.TypeOf((*encoding.BinaryUnmarshaler)(nil)).Elem()
-	textMarshalerInterfaceType     = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
-	textUnmarshalerInterfaceType   = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+	gobEncoderInterfaceType        = reflect.TypeFor[GobEncoder]()
+	gobDecoderInterfaceType        = reflect.TypeFor[GobDecoder]()
+	binaryMarshalerInterfaceType   = reflect.TypeFor[encoding.BinaryMarshaler]()
+	binaryUnmarshalerInterfaceType = reflect.TypeFor[encoding.BinaryUnmarshaler]()
+	textMarshalerInterfaceType     = reflect.TypeFor[encoding.TextMarshaler]()
+	textUnmarshalerInterfaceType   = reflect.TypeFor[encoding.TextUnmarshaler]()
 
-	wireTypeType = reflect.TypeOf((*wireType)(nil)).Elem()
+	wireTypeType = reflect.TypeFor[wireType]()
 )
 
 // implementsInterface reports whether the type implements the
@@ -279,12 +280,12 @@ var wireTypeUserInfo *userTypeInfo // userTypeInfo of wireType
 func init() {
 	// Some magic numbers to make sure there are no surprises.
 	checkId(16, tWireType)
-	checkId(17, mustGetTypeInfo(reflect.TypeOf((*arrayType)(nil)).Elem()).id)
-	checkId(18, mustGetTypeInfo(reflect.TypeOf((*CommonType)(nil)).Elem()).id)
-	checkId(19, mustGetTypeInfo(reflect.TypeOf((*sliceType)(nil)).Elem()).id)
-	checkId(20, mustGetTypeInfo(reflect.TypeOf((*structType)(nil)).Elem()).id)
-	checkId(21, mustGetTypeInfo(reflect.TypeOf((*fieldType)(nil)).Elem()).id)
-	checkId(23, mustGetTypeInfo(reflect.TypeOf((*mapType)(nil)).Elem()).id)
+	checkId(17, mustGetTypeInfo(reflect.TypeFor[arrayType]()).id)
+	checkId(18, mustGetTypeInfo(reflect.TypeFor[CommonType]()).id)
+	checkId(19, mustGetTypeInfo(reflect.TypeFor[sliceType]()).id)
+	checkId(20, mustGetTypeInfo(reflect.TypeFor[structType]()).id)
+	checkId(21, mustGetTypeInfo(reflect.TypeFor[fieldType]()).id)
+	checkId(23, mustGetTypeInfo(reflect.TypeFor[mapType]()).id)
 
 	copy(builtinIdToTypeSlice[:], idToTypeSlice)
 
@@ -589,6 +590,7 @@ func isSent(field *reflect.StructField) bool {
 	if typ.Kind() == reflect.Chan || typ.Kind() == reflect.Func {
 		return false
 	}
+
 	return true
 }
 
@@ -778,10 +780,7 @@ func buildTypeInfo(ut *userTypeInfo, rt reflect.Type) (*typeInfo, error) {
 
 	// Create new map with old contents plus new entry.
 	m, _ := typeInfoMap.Load().(map[reflect.Type]*typeInfo)
-	newm := make(map[reflect.Type]*typeInfo, len(m))
-	for k, v := range m {
-		newm[k] = v
-	}
+	newm := maps.Clone(m)
 	newm[rt] = info
 	typeInfoMap.Store(newm)
 	return info, nil
@@ -828,7 +827,7 @@ var (
 	concreteTypeToName sync.Map // map[reflect.Type]string
 )
 
-// RegisterName is like Register but uses the provided name rather than the
+// RegisterName is like [Register] but uses the provided name rather than the
 // type's default.
 func RegisterName(name string, value any) {
 	if name == "" {

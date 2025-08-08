@@ -6,7 +6,7 @@ package runtime
 
 import (
 	"internal/goarch"
-	"runtime/internal/atomic"
+	"internal/runtime/atomic"
 	"unsafe"
 )
 
@@ -215,13 +215,16 @@ func netpollBreak() {
 }
 
 // netpoll checks for ready network connections.
-// Returns list of goroutines that become runnable.
+// Returns a list of goroutines that become runnable,
+// and a delta to add to netpollWaiters.
+// This must never return an empty list with a non-zero delta.
+//
 // delay < 0: blocks indefinitely
 // delay == 0: does not block, just polls
 // delay > 0: block for up to that many nanoseconds
-func netpoll(delay int64) gList {
+func netpoll(delay int64) (gList, int32) {
 	if portfd == -1 {
-		return gList{}
+		return gList{}, 0
 	}
 
 	var wait *timespec
@@ -259,12 +262,13 @@ retry:
 		// If a timed sleep was interrupted and there are no events,
 		// just return to recalculate how long we should sleep now.
 		if delay > 0 {
-			return gList{}
+			return gList{}, 0
 		}
 		goto retry
 	}
 
 	var toRun gList
+	delta := int32(0)
 	for i := 0; i < int(n); i++ {
 		ev := &events[i]
 
@@ -324,9 +328,9 @@ retry:
 			// about the event port on SmartOS.
 			//
 			// See golang.org/x/issue/30840.
-			netpollready(&toRun, pd, mode)
+			delta += netpollready(&toRun, pd, mode)
 		}
 	}
 
-	return toRun
+	return toRun, delta
 }

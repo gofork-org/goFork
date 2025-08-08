@@ -1,5 +1,6 @@
-// +build amd64
 // errorcheck -0 -d=ssa/prove/debug=1
+
+//go:build amd64
 
 package main
 
@@ -26,7 +27,7 @@ func f0c(a []int) int {
 	x := 0
 	for i := range a { // ERROR "Induction variable: limits \[0,\?\), increment 1$"
 		b := a[:i+1] // ERROR "(\([0-9]+\) )?Proved IsSliceInBounds$"
-		x += b[0]
+		x += b[0]    // ERROR "(\([0-9]+\) )?Proved IsInBounds$"
 	}
 	return x
 }
@@ -58,7 +59,7 @@ func f4(a [10]int) int {
 func f5(a [10]int) int {
 	x := 0
 	for i := -10; i < len(a); i += 2 { // ERROR "Induction variable: limits \[-10,8\], increment 2$"
-		x += a[i]
+		x += a[i+10]
 	}
 	return x
 }
@@ -66,7 +67,7 @@ func f5(a [10]int) int {
 func f5_int32(a [10]int) int {
 	x := 0
 	for i := int32(-10); i < int32(len(a)); i += 2 { // ERROR "Induction variable: limits \[-10,8\], increment 2$"
-		x += a[i]
+		x += a[i+10]
 	}
 	return x
 }
@@ -74,7 +75,7 @@ func f5_int32(a [10]int) int {
 func f5_int16(a [10]int) int {
 	x := 0
 	for i := int16(-10); i < int16(len(a)); i += 2 { // ERROR "Induction variable: limits \[-10,8\], increment 2$"
-		x += a[i]
+		x += a[i+10]
 	}
 	return x
 }
@@ -82,11 +83,12 @@ func f5_int16(a [10]int) int {
 func f5_int8(a [10]int) int {
 	x := 0
 	for i := int8(-10); i < int8(len(a)); i += 2 { // ERROR "Induction variable: limits \[-10,8\], increment 2$"
-		x += a[i]
+		x += a[i+10]
 	}
 	return x
 }
 
+//go:noinline
 func f6(a []int) {
 	for i := range a { // ERROR "Induction variable: limits \[0,\?\), increment 1$"
 		b := a[0:i] // ERROR "(\([0-9]+\) )?Proved IsSliceInBounds$"
@@ -167,7 +169,7 @@ func g2() int {
 func g3a() {
 	a := "this string has length 25"
 	for i := 0; i < len(a); i += 5 { // ERROR "Induction variable: limits \[0,20\], increment 5$"
-		useString(a[i:]) // ERROR "(\([0-9]+\) )?Proved IsSliceInBounds$"
+		useString(a[i:])   // ERROR "(\([0-9]+\) )?Proved IsSliceInBounds$"
 		useString(a[:i+3]) // ERROR "(\([0-9]+\) )?Proved IsSliceInBounds$"
 		useString(a[:i+5]) // ERROR "(\([0-9]+\) )?Proved IsSliceInBounds$"
 		useString(a[:i+6])
@@ -201,6 +203,10 @@ func h2(a []byte) {
 
 func k0(a [100]int) [100]int {
 	for i := 10; i < 90; i++ { // ERROR "Induction variable: limits \[10,90\), increment 1$"
+		if a[0] == 0xdeadbeef {
+			// This is a trick to prohibit sccp to optimize out the following out of bound check
+			continue
+		}
 		a[i-11] = i
 		a[i-10] = i // ERROR "(\([0-9]+\) )?Proved IsInBounds$"
 		a[i-5] = i  // ERROR "(\([0-9]+\) )?Proved IsInBounds$"
@@ -214,6 +220,10 @@ func k0(a [100]int) [100]int {
 
 func k1(a [100]int) [100]int {
 	for i := 10; i < 90; i++ { // ERROR "Induction variable: limits \[10,90\), increment 1$"
+		if a[0] == 0xdeadbeef {
+			// This is a trick to prohibit sccp to optimize out the following out of bound check
+			continue
+		}
 		useSlice(a[:i-11])
 		useSlice(a[:i-10]) // ERROR "(\([0-9]+\) )?Proved IsSliceInBounds$"
 		useSlice(a[:i-5])  // ERROR "(\([0-9]+\) )?Proved IsSliceInBounds$"
@@ -229,6 +239,10 @@ func k1(a [100]int) [100]int {
 
 func k2(a [100]int) [100]int {
 	for i := 10; i < 90; i++ { // ERROR "Induction variable: limits \[10,90\), increment 1$"
+		if a[0] == 0xdeadbeef {
+			// This is a trick to prohibit sccp to optimize out the following out of bound check
+			continue
+		}
 		useSlice(a[i-11:])
 		useSlice(a[i-10:]) // ERROR "(\([0-9]+\) )?Proved IsSliceInBounds$"
 		useSlice(a[i-5:])  // ERROR "(\([0-9]+\) )?Proved IsSliceInBounds$"
@@ -243,6 +257,10 @@ func k2(a [100]int) [100]int {
 
 func k3(a [100]int) [100]int {
 	for i := -10; i < 90; i++ { // ERROR "Induction variable: limits \[-10,90\), increment 1$"
+		if a[0] == 0xdeadbeef {
+			// This is a trick to prohibit sccp to optimize out the following out of bound check
+			continue
+		}
 		a[i+9] = i
 		a[i+10] = i // ERROR "(\([0-9]+\) )?Proved IsInBounds$"
 		a[i+11] = i
@@ -252,6 +270,10 @@ func k3(a [100]int) [100]int {
 
 func k3neg(a [100]int) [100]int {
 	for i := 89; i > -11; i-- { // ERROR "Induction variable: limits \(-11,89\], increment 1$"
+		if a[0] == 0xdeadbeef {
+			// This is a trick to prohibit sccp to optimize out the following out of bound check
+			continue
+		}
 		a[i+9] = i
 		a[i+10] = i // ERROR "(\([0-9]+\) )?Proved IsInBounds$"
 		a[i+11] = i
@@ -261,6 +283,10 @@ func k3neg(a [100]int) [100]int {
 
 func k3neg2(a [100]int) [100]int {
 	for i := 89; i >= -10; i-- { // ERROR "Induction variable: limits \[-10,89\], increment 1$"
+		if a[0] == 0xdeadbeef {
+			// This is a trick to prohibit sccp to optimize out the following out of bound check
+			continue
+		}
 		a[i+9] = i
 		a[i+10] = i // ERROR "(\([0-9]+\) )?Proved IsInBounds$"
 		a[i+11] = i
@@ -269,8 +295,10 @@ func k3neg2(a [100]int) [100]int {
 }
 
 func k4(a [100]int) [100]int {
-	min := (-1) << 63
-	for i := min; i < min+50; i++ { // ERROR "Induction variable: limits \[-9223372036854775808,-9223372036854775758\), increment 1$"
+	// Note: can't use (-1)<<63 here, because i-min doesn't get rewritten to i+(-min),
+	// and it isn't worth adding that special case to prove.
+	min := (-1)<<63 + 1
+	for i := min; i < min+50; i++ { // ERROR "Induction variable: limits \[-9223372036854775807,-9223372036854775757\), increment 1$"
 		a[i-min] = i // ERROR "(\([0-9]+\) )?Proved IsInBounds$"
 	}
 	return a
@@ -289,7 +317,7 @@ func d1(a [100]int) [100]int {
 	for i := 0; i < 100; i++ { // ERROR "Induction variable: limits \[0,100\), increment 1$"
 		for j := 0; j < i; j++ { // ERROR "Induction variable: limits \[0,\?\), increment 1$"
 			a[j] = 0   // ERROR "Proved IsInBounds$"
-			a[j+1] = 0 // FIXME: this boundcheck should be eliminated
+			a[j+1] = 0 // ERROR "Proved IsInBounds$"
 			a[j+2] = 0
 		}
 	}
@@ -300,7 +328,7 @@ func d2(a [100]int) [100]int {
 	for i := 0; i < 100; i++ { // ERROR "Induction variable: limits \[0,100\), increment 1$"
 		for j := 0; i > j; j++ { // ERROR "Induction variable: limits \[0,\?\), increment 1$"
 			a[j] = 0   // ERROR "Proved IsInBounds$"
-			a[j+1] = 0 // FIXME: this boundcheck should be eliminated
+			a[j+1] = 0 // ERROR "Proved IsInBounds$"
 			a[j+2] = 0
 		}
 	}
@@ -394,12 +422,12 @@ func nobce2(a string) {
 	for i := int64(0); i < int64(len(a))-31337; i++ { // ERROR "Induction variable: limits \[0,\?\), increment 1$"
 		useString(a[i:]) // ERROR "(\([0-9]+\) )?Proved IsSliceInBounds$"
 	}
-	for i := int64(0); i < int64(len(a))+int64(-1<<63); i++ { // ERROR "Induction variable: limits \[0,\?\), increment 1$"
-		useString(a[i:]) // ERROR "(\([0-9]+\) )?Proved IsSliceInBounds$"
+	for i := int64(0); i < int64(len(a))+int64(-1<<63); i++ { // ERROR "Induction variable: limits \[0,\?\), increment 1$" "Disproved Less64"
+		useString(a[i:])
 	}
 	j := int64(len(a)) - 123
-	for i := int64(0); i < j+123+int64(-1<<63); i++ { // ERROR "Induction variable: limits \[0,\?\), increment 1$"
-		useString(a[i:]) // ERROR "(\([0-9]+\) )?Proved IsSliceInBounds$"
+	for i := int64(0); i < j+123+int64(-1<<63); i++ { // ERROR "Induction variable: limits \[0,\?\), increment 1$" "Disproved Less64"
+		useString(a[i:])
 	}
 	for i := int64(0); i < j+122+int64(-1<<63); i++ { // ERROR "Induction variable: limits \[0,\?\), increment 1$"
 		// len(a)-123+122+MinInt overflows when len(a) == 0, so a bound check is needed here
@@ -411,7 +439,6 @@ func nobce3(a [100]int64) [100]int64 {
 	min := int64((-1) << 63)
 	max := int64((1 << 63) - 1)
 	for i := min; i < max; i++ { // ERROR "Induction variable: limits \[-9223372036854775808,9223372036854775807\), increment 1$"
-		a[i] = i
 	}
 	return a
 }

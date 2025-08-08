@@ -250,7 +250,9 @@ func writebarrier(f *Func) {
 		// to a new block.
 		var last *Value
 		var start, end int
+		var nonPtrStores int
 		values := b.Values
+		hasMove := false
 	FindSeq:
 		for i := len(values) - 1; i >= 0; i-- {
 			w := values[i]
@@ -261,8 +263,31 @@ func writebarrier(f *Func) {
 					last = w
 					end = i + 1
 				}
+				nonPtrStores = 0
+				if w.Op == OpMoveWB {
+					hasMove = true
+				}
 			case OpVarDef, OpVarLive:
 				continue
+			case OpStore:
+				if last == nil {
+					continue
+				}
+				nonPtrStores++
+				if nonPtrStores > 2 {
+					break FindSeq
+				}
+				if hasMove {
+					// We need to ensure that this store happens
+					// before we issue a wbMove, as the wbMove might
+					// use the result of this store as its source.
+					// Even though this store is not write-barrier
+					// eligible, it might nevertheless be the store
+					// of a pointer to the stack, which is then the
+					// source of the move.
+					// See issue 71228.
+					break FindSeq
+				}
 			default:
 				if last == nil {
 					continue
@@ -309,7 +334,7 @@ func writebarrier(f *Func) {
 						}
 
 						t := val.Type.Elem()
-						tmp := f.fe.Auto(w.Pos, t)
+						tmp := f.NewLocal(w.Pos, t)
 						mem = b.NewValue1A(w.Pos, OpVarDef, types.TypeMem, tmp, mem)
 						tmpaddr := b.NewValue2A(w.Pos, OpLocalAddr, t.PtrTo(), tmp, sp, mem)
 						siz := t.Size()
@@ -353,7 +378,7 @@ func writebarrier(f *Func) {
 		memThen := mem
 		var curCall *Value
 		var curPtr *Value
-		addEntry := func(v *Value) {
+		addEntry := func(pos src.XPos, v *Value) {
 			if curCall == nil || curCall.AuxInt == maxEntries {
 				t := types.NewTuple(types.Types[types.TUINTPTR].PtrTo(), types.TypeMem)
 				curCall = bThen.NewValue1(pos, OpWB, t, memThen)
@@ -394,7 +419,7 @@ func writebarrier(f *Func) {
 			val := w.Args[1]
 			if !srcs.contains(val.ID) && needWBsrc(val) {
 				srcs.add(val.ID)
-				addEntry(val)
+				addEntry(pos, val)
 			}
 			if !dsts.contains(ptr.ID) && needWBdst(ptr, w.Args[2], zeroes) {
 				dsts.add(ptr.ID)
@@ -407,7 +432,7 @@ func writebarrier(f *Func) {
 				// combine the read and the write.
 				oldVal := bThen.NewValue2(pos, OpLoad, types.Types[types.TUINTPTR], ptr, memThen)
 				// Save old value to write buffer.
-				addEntry(oldVal)
+				addEntry(pos, oldVal)
 			}
 			f.fe.Func().SetWBPos(pos)
 			nWBops--
@@ -449,6 +474,7 @@ func writebarrier(f *Func) {
 
 		// Do raw stores after merge point.
 		for _, w := range stores {
+			pos := w.Pos
 			switch w.Op {
 			case OpStoreWB:
 				ptr := w.Args[0]
@@ -483,6 +509,10 @@ func writebarrier(f *Func) {
 				mem.Aux = w.Aux
 			case OpVarDef, OpVarLive:
 				mem = bEnd.NewValue1A(pos, w.Op, types.TypeMem, w.Aux, mem)
+			case OpStore:
+				ptr := w.Args[0]
+				val := w.Args[1]
+				mem = bEnd.NewValue3A(pos, OpStore, types.TypeMem, w.Aux, ptr, val, mem)
 			}
 		}
 
@@ -656,7 +686,7 @@ func wbcall(pos src.XPos, b *Block, fn *obj.LSym, sp, mem *Value, args ...*Value
 	for i := 0; i < nargs; i++ {
 		argTypes[i] = typ
 	}
-	call := b.NewValue0A(pos, OpStaticCall, types.TypeResultMem, StaticAuxCall(fn, b.Func.ABIDefault.ABIAnalyzeTypes(nil, argTypes, nil)))
+	call := b.NewValue0A(pos, OpStaticCall, types.TypeResultMem, StaticAuxCall(fn, b.Func.ABIDefault.ABIAnalyzeTypes(argTypes, nil)))
 	call.AddArgs(args...)
 	call.AuxInt = int64(nargs) * typ.Size()
 	return b.NewValue1I(pos, OpSelectN, types.TypeMem, 0, call)

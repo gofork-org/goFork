@@ -5,6 +5,7 @@
 package dwarfgen
 
 import (
+	"cmp"
 	"debug/dwarf"
 	"fmt"
 	"internal/platform"
@@ -12,7 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -50,13 +51,14 @@ type testline struct {
 
 var testfile = []testline{
 	{line: "package main"},
+	{line: "var sink any"},
 	{line: "func f1(x int) { }"},
 	{line: "func f2(x int) { }"},
 	{line: "func f3(x int) { }"},
 	{line: "func f4(x int) { }"},
 	{line: "func f5(x int) { }"},
 	{line: "func f6(x int) { }"},
-	{line: "func fi(x interface{}) { if a, ok := x.(error); ok { a.Error() } }"},
+	{line: "func leak(x interface{}) { sink = x }"},
 	{line: "func gret1() int { return 2 }"},
 	{line: "func gretbool() bool { return true }"},
 	{line: "func gret3() (int, int, int) { return 0, 1, 2 }"},
@@ -177,7 +179,7 @@ var testfile = []testline{
 	{line: "		b := 2", scopes: []int{1}, vars: []string{"var &b *int", "var p *int"}},
 	{line: "		p := &b", scopes: []int{1}},
 	{line: "		f1(a)", scopes: []int{1}},
-	{line: "		fi(p)", scopes: []int{1}},
+	{line: "		leak(p)", scopes: []int{1}},
 	{line: "	}"},
 	{line: "}"},
 	{line: "var fglob func() int"},
@@ -399,8 +401,8 @@ func readScope(ctxt *scopexplainContext, scope *lexblock, entry *dwarf.Entry) {
 		}
 		switch e.Tag {
 		case 0:
-			sort.Slice(scope.vars, func(i, j int) bool {
-				return scope.vars[i].expr < scope.vars[j].expr
+			slices.SortFunc(scope.vars, func(a, b variable) int {
+				return cmp.Compare(a.expr, b.expr)
 			})
 			return
 		case dwarf.TagFormalParameter:

@@ -534,7 +534,7 @@ func (f *xcoffFile) getXCOFFscnum(sect *sym.Section) int16 {
 	case &Segrelrodata:
 		return f.sectNameToScnum[".data"]
 	}
-	Errorf(nil, "getXCOFFscnum not implemented for section %s", sect.Name)
+	Errorf("getXCOFFscnum not implemented for section %s", sect.Name)
 	return -1
 }
 
@@ -544,15 +544,14 @@ func Xcoffinit(ctxt *Link) {
 	xfile.dynLibraries = make(map[string]int)
 
 	HEADR = int32(Rnd(XCOFFHDRRESERVE, XCOFFSECTALIGN))
-	if *FlagTextAddr != -1 {
-		Errorf(nil, "-T not available on AIX")
-	}
-	*FlagTextAddr = XCOFFTEXTBASE + int64(HEADR)
 	if *FlagRound != -1 {
-		Errorf(nil, "-R not available on AIX")
+		Errorf("-R not available on AIX")
 	}
-	*FlagRound = int(XCOFFSECTALIGN)
-
+	*FlagRound = XCOFFSECTALIGN
+	if *FlagTextAddr != -1 {
+		Errorf("-T not available on AIX")
+	}
+	*FlagTextAddr = Rnd(XCOFFTEXTBASE, *FlagRound) + int64(HEADR)
 }
 
 // SYMBOL TABLE
@@ -584,7 +583,7 @@ func xcoffUpdateOuterSize(ctxt *Link, size int64, stype sym.SymKind) {
 	ldr := ctxt.loader
 	switch stype {
 	default:
-		Errorf(nil, "unknown XCOFF outer symbol for type %s", stype.String())
+		Errorf("unknown XCOFF outer symbol for type %s", stype.String())
 	case sym.SRODATA, sym.SRODATARELRO, sym.SFUNCTAB, sym.SSTRING:
 		// Nothing to do
 	case sym.STYPERELRO:
@@ -1047,7 +1046,7 @@ func (f *xcoffFile) asmaixsym(ctxt *Link) {
 	for name, size := range outerSymSize {
 		sym := ldr.Lookup(name, 0)
 		if sym == 0 {
-			Errorf(nil, "unknown outer symbol with name %s", name)
+			Errorf("unknown outer symbol with name %s", name)
 		} else {
 			s := ldr.MakeSymbolUpdater(sym)
 			s.SetSize(size)
@@ -1057,7 +1056,7 @@ func (f *xcoffFile) asmaixsym(ctxt *Link) {
 	// These symbols won't show up in the first loop below because we
 	// skip sym.STEXT symbols. Normal sym.STEXT symbols are emitted by walking textp.
 	s := ldr.Lookup("runtime.text", 0)
-	if ldr.SymType(s) == sym.STEXT {
+	if ldr.SymType(s).IsText() {
 		// We've already included this symbol in ctxt.Textp on AIX with external linker.
 		// See data.go:/textaddress
 		if !ctxt.IsExternal() {
@@ -1076,14 +1075,14 @@ func (f *xcoffFile) asmaixsym(ctxt *Link) {
 		if s == 0 {
 			break
 		}
-		if ldr.SymType(s) == sym.STEXT {
+		if ldr.SymType(s).IsText() {
 			putaixsym(ctxt, s, TextSym)
 		}
 		n++
 	}
 
 	s = ldr.Lookup("runtime.etext", 0)
-	if ldr.SymType(s) == sym.STEXT {
+	if ldr.SymType(s).IsText() {
 		// We've already included this symbol in ctxt.Textp
 		// on AIX with external linker.
 		// See data.go:/textaddress
@@ -1141,7 +1140,7 @@ func (f *xcoffFile) asmaixsym(ctxt *Link) {
 		putaixsym(ctxt, s, TextSym)
 	}
 
-	if ctxt.Debugvlog != 0 || *flagN {
+	if ctxt.Debugvlog != 0 {
 		ctxt.Logf("symsize = %d\n", uint32(symSize))
 	}
 	xfile.updatePreviousFile(ctxt, true)
@@ -1256,7 +1255,7 @@ func Xcoffadddynrel(target *Target, ldr *loader.Loader, syms *ArchSyms, s loader
 					break
 				}
 			}
-		} else if t := ldr.SymType(s); t == sym.SDATA || t == sym.SNOPTRDATA || t == sym.SBUILDINFO || t == sym.SXCOFFTOC {
+		} else if t := ldr.SymType(s); t.IsDATA() || t.IsNOPTRDATA() || t == sym.SBUILDINFO || t == sym.SXCOFFTOC {
 			switch ldr.SymSect(targ).Seg {
 			default:
 				ldr.Errorf(s, "unknown segment for .loader relocation with symbol %s", ldr.SymName(targ))
@@ -1328,7 +1327,7 @@ func (ctxt *Link) doxcoff() {
 				panic("cgo_export on static symbol")
 			}
 
-			if ldr.SymType(s) == sym.STEXT {
+			if ldr.SymType(s).IsText() {
 				// On AIX, an exported function must have two symbols:
 				// - a .text symbol which must start with a ".".
 				// - a .data symbol which is a function descriptor.
@@ -1581,7 +1580,7 @@ func xcoffwrite(ctxt *Link) {
 func asmbXcoff(ctxt *Link) {
 	ctxt.Out.SeekSet(0)
 	fileoff := int64(Segdwarf.Fileoff + Segdwarf.Filelen)
-	fileoff = int64(Rnd(int64(fileoff), int64(*FlagRound)))
+	fileoff = int64(Rnd(int64(fileoff), *FlagRound))
 
 	xfile.sectNameToScnum = make(map[string]int16)
 
@@ -1768,7 +1767,7 @@ dwarfLoop:
 				continue dwarfLoop
 			}
 		}
-		Errorf(nil, "emitRelocations: could not find %q section", sect.Name)
+		Errorf("emitRelocations: could not find %q section", sect.Name)
 	}
 }
 
@@ -1803,7 +1802,7 @@ func xcoffCreateExportFile(ctxt *Link) (fname string) {
 
 	err := os.WriteFile(fname, buf.Bytes(), 0666)
 	if err != nil {
-		Errorf(nil, "WriteFile %s failed: %v", fname, err)
+		Errorf("WriteFile %s failed: %v", fname, err)
 	}
 
 	return fname

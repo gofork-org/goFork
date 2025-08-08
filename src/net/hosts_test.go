@@ -5,7 +5,7 @@
 package net
 
 import (
-	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -59,10 +59,10 @@ var lookupStaticHostTests = []struct {
 }
 
 func TestLookupStaticHost(t *testing.T) {
-	defer func(orig string) { testHookHostsPath = orig }(testHookHostsPath)
+	defer func(orig string) { hostsFilePath = orig }(hostsFilePath)
 
 	for _, tt := range lookupStaticHostTests {
-		testHookHostsPath = tt.name
+		hostsFilePath = tt.name
 		for _, ent := range tt.ents {
 			testStaticHost(t, tt.name, ent)
 		}
@@ -73,7 +73,7 @@ func testStaticHost(t *testing.T, hostsPath string, ent staticHostEntry) {
 	ins := []string{ent.in, absDomainName(ent.in), strings.ToLower(ent.in), strings.ToUpper(ent.in)}
 	for _, in := range ins {
 		addrs, _ := lookupStaticHost(in)
-		if !reflect.DeepEqual(addrs, ent.out) {
+		if !slices.Equal(addrs, ent.out) {
 			t.Errorf("%s, lookupStaticHost(%s) = %v; want %v", hostsPath, in, addrs, ent.out)
 		}
 	}
@@ -128,10 +128,10 @@ var lookupStaticAddrTests = []struct {
 }
 
 func TestLookupStaticAddr(t *testing.T) {
-	defer func(orig string) { testHookHostsPath = orig }(testHookHostsPath)
+	defer func(orig string) { hostsFilePath = orig }(hostsFilePath)
 
 	for _, tt := range lookupStaticAddrTests {
-		testHookHostsPath = tt.name
+		hostsFilePath = tt.name
 		for _, ent := range tt.ents {
 			testStaticAddr(t, tt.name, ent)
 		}
@@ -143,7 +143,7 @@ func testStaticAddr(t *testing.T, hostsPath string, ent staticHostEntry) {
 	for i := range ent.out {
 		ent.out[i] = absDomainName(ent.out[i])
 	}
-	if !reflect.DeepEqual(hosts, ent.out) {
+	if !slices.Equal(hosts, ent.out) {
 		t.Errorf("%s, lookupStaticAddr(%s) = %v; want %v", hostsPath, ent.in, hosts, ent.out)
 	}
 }
@@ -151,27 +151,27 @@ func testStaticAddr(t *testing.T, hostsPath string, ent staticHostEntry) {
 func TestHostCacheModification(t *testing.T) {
 	// Ensure that programs can't modify the internals of the host cache.
 	// See https://golang.org/issues/14212.
-	defer func(orig string) { testHookHostsPath = orig }(testHookHostsPath)
+	defer func(orig string) { hostsFilePath = orig }(hostsFilePath)
 
-	testHookHostsPath = "testdata/ipv4-hosts"
+	hostsFilePath = "testdata/ipv4-hosts"
 	ent := staticHostEntry{"localhost", []string{"127.0.0.1", "127.0.0.2", "127.0.0.3"}}
-	testStaticHost(t, testHookHostsPath, ent)
+	testStaticHost(t, hostsFilePath, ent)
 	// Modify the addresses return by lookupStaticHost.
 	addrs, _ := lookupStaticHost(ent.in)
 	for i := range addrs {
 		addrs[i] += "junk"
 	}
-	testStaticHost(t, testHookHostsPath, ent)
+	testStaticHost(t, hostsFilePath, ent)
 
-	testHookHostsPath = "testdata/ipv6-hosts"
+	hostsFilePath = "testdata/ipv6-hosts"
 	ent = staticHostEntry{"::1", []string{"localhost"}}
-	testStaticAddr(t, testHookHostsPath, ent)
+	testStaticAddr(t, hostsFilePath, ent)
 	// Modify the hosts return by lookupStaticAddr.
 	hosts := lookupStaticAddr(ent.in)
 	for i := range hosts {
 		hosts[i] += "junk"
 	}
-	testStaticAddr(t, testHookHostsPath, ent)
+	testStaticAddr(t, hostsFilePath, ent)
 }
 
 var lookupStaticHostAliasesTest = []struct {
@@ -195,9 +195,9 @@ var lookupStaticHostAliasesTest = []struct {
 }
 
 func TestLookupStaticHostAliases(t *testing.T) {
-	defer func(orig string) { testHookHostsPath = orig }(testHookHostsPath)
+	defer func(orig string) { hostsFilePath = orig }(hostsFilePath)
 
-	testHookHostsPath = "testdata/aliases"
+	hostsFilePath = "testdata/aliases"
 	for _, ent := range lookupStaticHostAliasesTest {
 		testLookupStaticHostAliases(t, ent.lookup, absDomainName(ent.res))
 	}

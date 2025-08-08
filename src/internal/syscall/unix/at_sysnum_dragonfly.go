@@ -6,11 +6,17 @@ package unix
 
 import "syscall"
 
-const unlinkatTrap uintptr = syscall.SYS_UNLINKAT
-const openatTrap uintptr = syscall.SYS_OPENAT
-const fstatatTrap uintptr = syscall.SYS_FSTATAT
+const (
+	unlinkatTrap   uintptr = syscall.SYS_UNLINKAT
+	openatTrap     uintptr = syscall.SYS_OPENAT
+	fstatatTrap    uintptr = syscall.SYS_FSTATAT
+	readlinkatTrap uintptr = syscall.SYS_READLINKAT
+	mkdiratTrap    uintptr = syscall.SYS_MKDIRAT
 
-const AT_REMOVEDIR = 0x2
-const AT_SYMLINK_NOFOLLOW = 0x1
+	AT_EACCESS          = 0x4
+	AT_FDCWD            = 0xfffafdcd
+	AT_REMOVEDIR        = 0x2
+	AT_SYMLINK_NOFOLLOW = 0x1
 
-const UTIME_OMIT = -0x1
+	UTIME_OMIT = -0x2
+)

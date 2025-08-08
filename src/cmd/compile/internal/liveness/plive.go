@@ -15,8 +15,10 @@
 package liveness
 
 import (
+	"cmp"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -29,7 +31,7 @@ import (
 	"cmd/compile/internal/ssa"
 	"cmd/compile/internal/typebits"
 	"cmd/compile/internal/types"
-	"cmd/internal/notsha256"
+	"cmd/internal/hash"
 	"cmd/internal/obj"
 	"cmd/internal/src"
 
@@ -116,6 +118,10 @@ type liveness struct {
 	// unsafePoints bit i is set if Value ID i is an unsafe-point
 	// (preemption is not allowed). Only valid if !allUnsafe.
 	unsafePoints bitvec.BitVec
+	// unsafeBlocks bit i is set if Block ID i is an unsafe-point
+	// (preemption is not allowed on any end-of-block
+	// instructions). Only valid if !allUnsafe.
+	unsafeBlocks bitvec.BitVec
 
 	// An array with a bit vector for each safe point in the
 	// current Block during liveness.epilogue. Indexed in Value
@@ -139,38 +145,62 @@ type liveness struct {
 
 	doClobber     bool // Whether to clobber dead stack slots in this function.
 	noClobberArgs bool // Do not clobber function arguments
+
+	// treat "dead" writes as equivalent to reads during the analysis;
+	// used only during liveness analysis for stack slot merging (doesn't
+	// make sense for stackmap analysis).
+	conservativeWrites bool
 }
 
-// Map maps from *ssa.Value to LivenessIndex.
+// Map maps from *ssa.Value to StackMapIndex.
+// Also keeps track of unsafe ssa.Values and ssa.Blocks.
+// (unsafe = can't be interrupted during GC.)
 type Map struct {
-	Vals map[ssa.ID]objw.LivenessIndex
+	Vals         map[ssa.ID]objw.StackMapIndex
+	UnsafeVals   map[ssa.ID]bool
+	UnsafeBlocks map[ssa.ID]bool
 	// The set of live, pointer-containing variables at the DeferReturn
 	// call (only set when open-coded defers are used).
-	DeferReturn objw.LivenessIndex
+	DeferReturn objw.StackMapIndex
 }
 
 func (m *Map) reset() {
 	if m.Vals == nil {
-		m.Vals = make(map[ssa.ID]objw.LivenessIndex)
+		m.Vals = make(map[ssa.ID]objw.StackMapIndex)
+		m.UnsafeVals = make(map[ssa.ID]bool)
+		m.UnsafeBlocks = make(map[ssa.ID]bool)
 	} else {
-		for k := range m.Vals {
-			delete(m.Vals, k)
-		}
+		clear(m.Vals)
+		clear(m.UnsafeVals)
+		clear(m.UnsafeBlocks)
 	}
-	m.DeferReturn = objw.LivenessDontCare
+	m.DeferReturn = objw.StackMapDontCare
 }
 
-func (m *Map) set(v *ssa.Value, i objw.LivenessIndex) {
+func (m *Map) set(v *ssa.Value, i objw.StackMapIndex) {
 	m.Vals[v.ID] = i
 }
+func (m *Map) setUnsafeVal(v *ssa.Value) {
+	m.UnsafeVals[v.ID] = true
+}
+func (m *Map) setUnsafeBlock(b *ssa.Block) {
+	m.UnsafeBlocks[b.ID] = true
+}
 
-func (m Map) Get(v *ssa.Value) objw.LivenessIndex {
-	// If v isn't in the map, then it's a "don't care" and not an
-	// unsafe-point.
+func (m Map) Get(v *ssa.Value) objw.StackMapIndex {
+	// If v isn't in the map, then it's a "don't care".
 	if idx, ok := m.Vals[v.ID]; ok {
 		return idx
 	}
-	return objw.LivenessIndex{StackMapIndex: objw.StackMapDontCare, IsUnsafePoint: false}
+	return objw.StackMapDontCare
+}
+func (m Map) GetUnsafe(v *ssa.Value) bool {
+	// default is safe
+	return m.UnsafeVals[v.ID]
+}
+func (m Map) GetUnsafeBlock(b *ssa.Block) bool {
+	// default is safe
+	return m.UnsafeBlocks[b.ID]
 }
 
 type progeffectscache struct {
@@ -283,8 +313,12 @@ func (lv *liveness) valueEffects(v *ssa.Value) (int32, liveEffect) {
 	if e&(ssa.SymRead|ssa.SymAddr) != 0 {
 		effect |= uevar
 	}
-	if e&ssa.SymWrite != 0 && (!isfat(n.Type()) || v.Op == ssa.OpVarDef) {
-		effect |= varkill
+	if e&ssa.SymWrite != 0 {
+		if !isfat(n.Type()) || v.Op == ssa.OpVarDef {
+			effect |= varkill
+		} else if lv.conservativeWrites {
+			effect |= uevar
+		}
 	}
 
 	if effect == 0 {
@@ -377,8 +411,15 @@ func newliveness(fn *ir.Func, f *ssa.Func, vars []*ir.Name, idx map[*ir.Name]int
 		if cap(lc.be) >= f.NumBlocks() {
 			lv.be = lc.be[:f.NumBlocks()]
 		}
-		lv.livenessMap = Map{Vals: lc.livenessMap.Vals, DeferReturn: objw.LivenessDontCare}
+		lv.livenessMap = Map{
+			Vals:         lc.livenessMap.Vals,
+			UnsafeVals:   lc.livenessMap.UnsafeVals,
+			UnsafeBlocks: lc.livenessMap.UnsafeBlocks,
+			DeferReturn:  objw.StackMapDontCare,
+		}
 		lc.livenessMap.Vals = nil
+		lc.livenessMap.UnsafeVals = nil
+		lc.livenessMap.UnsafeBlocks = nil
 	}
 	if lv.be == nil {
 		lv.be = make([]blockEffects, f.NumBlocks())
@@ -386,7 +427,7 @@ func newliveness(fn *ir.Func, f *ssa.Func, vars []*ir.Name, idx map[*ir.Name]int
 
 	nblocks := int32(len(f.Blocks))
 	nvars := int32(len(vars))
-	bulk := bitvec.NewBulk(nvars, nblocks*7)
+	bulk := bitvec.NewBulk(nvars, nblocks*7, fn.Pos())
 	for _, b := range f.Blocks {
 		be := lv.blockEffects(b)
 
@@ -414,6 +455,11 @@ func (lv *liveness) blockEffects(b *ssa.Block) *blockEffects {
 // this argument and the in arguments are always assumed live. The vars
 // argument is a slice of *Nodes.
 func (lv *liveness) pointerMap(liveout bitvec.BitVec, vars []*ir.Name, args, locals bitvec.BitVec) {
+	var slotsSeen map[int64]*ir.Name
+	checkForDuplicateSlots := base.Debug.MergeLocals != 0
+	if checkForDuplicateSlots {
+		slotsSeen = make(map[int64]*ir.Name)
+	}
 	for i := int32(0); ; i++ {
 		i = liveout.Next(i)
 		if i < 0 {
@@ -431,6 +477,12 @@ func (lv *liveness) pointerMap(liveout bitvec.BitVec, vars []*ir.Name, args, loc
 			}
 			fallthrough // PPARAMOUT in registers acts memory-allocates like an AUTO
 		case ir.PAUTO:
+			if checkForDuplicateSlots {
+				if prev, ok := slotsSeen[node.FrameOffset()]; ok {
+					base.FatalfAt(node.Pos(), "two vars live at pointerMap generation: %q and %q", prev.Sym().Name, node.Sym().Name)
+				}
+				slotsSeen[node.FrameOffset()] = node
+			}
 			typebits.Set(node.Type(), node.FrameOffset()+lv.stkptrsize, locals)
 		}
 	}
@@ -460,6 +512,7 @@ func (lv *liveness) markUnsafePoints() {
 	}
 
 	lv.unsafePoints = bitvec.New(int32(lv.f.NumValues()))
+	lv.unsafeBlocks = bitvec.New(int32(lv.f.NumBlocks()))
 
 	// Mark architecture-specific unsafe points.
 	for _, b := range lv.f.Blocks {
@@ -489,8 +542,6 @@ func (lv *liveness) markUnsafePoints() {
 			//    m2 = store operation ... m1
 			//    m3 = store operation ... m2
 			//    m4 = WBend m3
-			//
-			// (For now m2 and m3 won't be present.)
 
 			// Find first memory op in the block, which should be a Phi.
 			m := v
@@ -535,40 +586,38 @@ func (lv *liveness) markUnsafePoints() {
 			var load *ssa.Value
 			v := decisionBlock.Controls[0]
 			for {
-				if sym, ok := v.Aux.(*obj.LSym); ok && sym == ir.Syms.WriteBarrier {
-					load = v
-					break
-				}
-				switch v.Op {
-				case ssa.Op386TESTL:
-					// 386 lowers Neq32 to (TESTL cond cond),
-					if v.Args[0] == v.Args[1] {
-						v = v.Args[0]
-						continue
+				if v.MemoryArg() != nil {
+					// Single instruction to load (and maybe compare) the write barrier flag.
+					if sym, ok := v.Aux.(*obj.LSym); ok && sym == ir.Syms.WriteBarrier {
+						load = v
+						break
 					}
-				case ssa.Op386MOVLload, ssa.OpARM64MOVWUload, ssa.OpMIPS64MOVWUload, ssa.OpPPC64MOVWZload, ssa.OpWasmI64Load32U:
-					// Args[0] is the address of the write
-					// barrier control. Ignore Args[1],
-					// which is the mem operand.
-					// TODO: Just ignore mem operands?
+					// Some architectures have to materialize the address separate from
+					// the load.
+					if sym, ok := v.Args[0].Aux.(*obj.LSym); ok && sym == ir.Syms.WriteBarrier {
+						load = v
+						break
+					}
+					v.Fatalf("load of write barrier flag not from correct global: %s", v.LongString())
+				}
+				// Common case: just flow backwards.
+				if len(v.Args) == 1 || len(v.Args) == 2 && v.Args[0] == v.Args[1] {
+					// Note: 386 lowers Neq32 to (TESTL cond cond),
 					v = v.Args[0]
 					continue
 				}
-				// Common case: just flow backwards.
-				if len(v.Args) != 1 {
-					v.Fatalf("write barrier control value has more than one argument: %s", v.LongString())
-				}
-				v = v.Args[0]
+				v.Fatalf("write barrier control value has more than one argument: %s", v.LongString())
 			}
 
 			// Mark everything after the load unsafe.
 			found := false
 			for _, v := range decisionBlock.Values {
-				found = found || v == load
 				if found {
 					lv.unsafePoints.Set(int32(v.ID))
 				}
+				found = found || v == load
 			}
+			lv.unsafeBlocks.Set(int32(decisionBlock.ID))
 
 			// Mark the write barrier on/off blocks as unsafe.
 			for _, e := range decisionBlock.Succs {
@@ -579,14 +628,15 @@ func (lv *liveness) markUnsafePoints() {
 				for _, v := range x.Values {
 					lv.unsafePoints.Set(int32(v.ID))
 				}
+				lv.unsafeBlocks.Set(int32(x.ID))
 			}
 
 			// Mark from the join point up to the WBend as unsafe.
 			for _, v := range b.Values {
-				lv.unsafePoints.Set(int32(v.ID))
 				if v.Op == ssa.OpWBend {
 					break
 				}
+				lv.unsafePoints.Set(int32(v.ID))
 			}
 		}
 	}
@@ -828,13 +878,10 @@ func (lv *liveness) epilogue() {
 
 	// If we have an open-coded deferreturn call, make a liveness map for it.
 	if lv.fn.OpenCodedDeferDisallowed() {
-		lv.livenessMap.DeferReturn = objw.LivenessDontCare
+		lv.livenessMap.DeferReturn = objw.StackMapDontCare
 	} else {
 		idx, _ := lv.stackMapSet.add(livedefer)
-		lv.livenessMap.DeferReturn = objw.LivenessIndex{
-			StackMapIndex: idx,
-			IsUnsafePoint: false,
-		}
+		lv.livenessMap.DeferReturn = objw.StackMapIndex(idx)
 	}
 
 	// Done compacting. Throw out the stack map set.
@@ -875,16 +922,17 @@ func (lv *liveness) compact(b *ssa.Block) {
 		pos++
 	}
 	for _, v := range b.Values {
-		hasStackMap := lv.hasStackMap(v)
-		isUnsafePoint := lv.allUnsafe || v.Op != ssa.OpClobber && lv.unsafePoints.Get(int32(v.ID))
-		idx := objw.LivenessIndex{StackMapIndex: objw.StackMapDontCare, IsUnsafePoint: isUnsafePoint}
-		if hasStackMap {
-			idx.StackMapIndex, _ = lv.stackMapSet.add(lv.livevars[pos])
+		if lv.hasStackMap(v) {
+			idx, _ := lv.stackMapSet.add(lv.livevars[pos])
 			pos++
+			lv.livenessMap.set(v, objw.StackMapIndex(idx))
 		}
-		if hasStackMap || isUnsafePoint {
-			lv.livenessMap.set(v, idx)
+		if lv.allUnsafe || v.Op != ssa.OpClobber && lv.unsafePoints.Get(int32(v.ID)) {
+			lv.livenessMap.setUnsafeVal(v)
 		}
+	}
+	if lv.allUnsafe || lv.unsafeBlocks.Get(int32(b.ID)) {
+		lv.livenessMap.setUnsafeBlock(b)
 	}
 
 	// Reset livevars.
@@ -933,7 +981,7 @@ func (lv *liveness) enableClobber() {
 		// Clobber only functions where the hash of the function name matches a pattern.
 		// Useful for binary searching for a miscompiled function.
 		hstr := ""
-		for _, b := range notsha256.Sum256([]byte(lv.f.Name)) {
+		for _, b := range hash.Sum20([]byte(lv.f.Name)) {
 			hstr += fmt.Sprintf("%08b", b)
 		}
 		if !strings.HasSuffix(hstr, h) {
@@ -1039,7 +1087,7 @@ func clobberWalk(b *ssa.Block, v *ir.Name, offset int64, t *types.Type) {
 		}
 
 	case types.TSTRUCT:
-		for _, t1 := range t.Fields().Slice() {
+		for _, t1 := range t.Fields() {
 			clobberWalk(b, v, offset+t1.Offset, t1.Type)
 		}
 
@@ -1102,7 +1150,7 @@ func (lv *liveness) showlive(v *ssa.Value, live bitvec.BitVec) {
 		s += " " + v
 	}
 
-	base.WarnfAt(pos, s)
+	base.WarnfAt(pos, "%s", s)
 }
 
 func (lv *liveness) printbvec(printed bool, name string, live bitvec.BitVec) bool {
@@ -1221,7 +1269,7 @@ func (lv *liveness) printDebug() {
 				fmt.Printf("\tlive=")
 				printed = false
 				if pcdata.StackMapValid() {
-					live := lv.stackMaps[pcdata.StackMapIndex]
+					live := lv.stackMaps[pcdata]
 					for j, n := range lv.vars {
 						if !live.Get(int32(j)) {
 							continue
@@ -1236,9 +1284,12 @@ func (lv *liveness) printDebug() {
 				fmt.Printf("\n")
 			}
 
-			if pcdata.IsUnsafePoint {
+			if lv.livenessMap.GetUnsafe(v) {
 				fmt.Printf("\tunsafe-point\n")
 			}
+		}
+		if lv.livenessMap.GetUnsafeBlock(b) {
+			fmt.Printf("\tunsafe-block\n")
 		}
 
 		// bb bitsets
@@ -1333,7 +1384,7 @@ func Compute(curfn *ir.Func, f *ssa.Func, stkptrsize int64, pp *objw.Progs) (Map
 		for _, b := range f.Blocks {
 			for _, val := range b.Values {
 				if idx := lv.livenessMap.Get(val); idx.StackMapValid() {
-					lv.showlive(val, lv.stackMaps[idx.StackMapIndex])
+					lv.showlive(val, lv.stackMaps[idx])
 				}
 			}
 		}
@@ -1396,7 +1447,7 @@ func (lv *liveness) emitStackObjects() *obj.LSym {
 	}
 
 	// Sort variables from lowest to highest address.
-	sort.Slice(vars, func(i, j int) bool { return vars[i].FrameOffset() < vars[j].FrameOffset() })
+	slices.SortFunc(vars, func(a, b *ir.Name) int { return cmp.Compare(a.FrameOffset(), b.FrameOffset()) })
 
 	// Populate the stack object data.
 	// Format must match runtime/stack.go:stackObjectRecord.
@@ -1422,12 +1473,9 @@ func (lv *liveness) emitStackObjects() *obj.LSym {
 		if sz != int64(int32(sz)) {
 			base.Fatalf("stack object too big: %v of type %v, size %d", v, t, sz)
 		}
-		lsym, useGCProg, ptrdata := reflectdata.GCSym(t)
-		if useGCProg {
-			ptrdata = -ptrdata
-		}
+		lsym, ptrBytes := reflectdata.GCSym(t)
 		off = objw.Uint32(x, off, uint32(sz))
-		off = objw.Uint32(x, off, uint32(ptrdata))
+		off = objw.Uint32(x, off, uint32(ptrBytes))
 		off = objw.SymPtrOff(x, off, lsym)
 	}
 
@@ -1481,11 +1529,11 @@ func isfat(t *types.Type) bool {
 // inputs and outputs as the value of symbol <fn>.args_stackmap.
 // If fn has outputs, two bitmaps are written, otherwise just one.
 func WriteFuncMap(fn *ir.Func, abiInfo *abi.ABIParamResultInfo) {
-	if ir.FuncName(fn) == "_" || fn.Sym().Linkname != "" {
+	if ir.FuncName(fn) == "_" {
 		return
 	}
 	nptr := int(abiInfo.ArgWidth() / int64(types.PtrSize))
-	bv := bitvec.New(int32(nptr) * 2)
+	bv := bitvec.New(int32(nptr))
 
 	for _, p := range abiInfo.InParams() {
 		typebits.SetNoCheck(p.Type, p.FrameOffset(abiInfo), bv)
@@ -1496,6 +1544,7 @@ func WriteFuncMap(fn *ir.Func, abiInfo *abi.ABIParamResultInfo) {
 		nbitmap = 2
 	}
 	lsym := base.Ctxt.Lookup(fn.LSym.Name + ".args_stackmap")
+	lsym.Set(obj.AttrLinkname, true) // allow args_stackmap referenced from assembly
 	off := objw.Uint32(lsym, 0, uint32(nbitmap))
 	off = objw.Uint32(lsym, off, uint32(bv.N))
 	off = objw.BitVec(lsym, off, bv)

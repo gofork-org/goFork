@@ -7,6 +7,9 @@
 package main
 
 import (
+	"cmd/internal/buildid"
+	"cmd/internal/hash"
+	"cmd/link/internal/ld"
 	"debug/elf"
 	"fmt"
 	"internal/platform"
@@ -196,6 +199,56 @@ func TestMinusRSymsWithSameName(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Logf("%s", out)
 		t.Fatal(err)
+	}
+}
+
+func TestGNUBuildID(t *testing.T) {
+	testenv.MustHaveGoBuild(t)
+
+	t.Parallel()
+
+	tmpdir := t.TempDir()
+	goFile := filepath.Join(tmpdir, "notes.go")
+	if err := os.WriteFile(goFile, []byte(goSource), 0444); err != nil {
+		t.Fatal(err)
+	}
+
+	// Use a specific Go buildid for testing.
+	const gobuildid = "testbuildid"
+	h := hash.Sum32([]byte(gobuildid))
+	gobuildidHash := string(h[:20])
+
+	tests := []struct{ name, ldflags, expect string }{
+		{"default", "", gobuildidHash},
+		{"gobuildid", "-B=gobuildid", gobuildidHash},
+		{"specific", "-B=0x0123456789abcdef", "\x01\x23\x45\x67\x89\xab\xcd\xef"},
+		{"none", "-B=none", ""},
+	}
+	if testenv.HasCGO() && runtime.GOOS != "solaris" && runtime.GOOS != "illumos" {
+		// Solaris ld doesn't support --build-id. So we don't
+		// add it in external linking mode.
+		for _, test := range tests {
+			t1 := test
+			t1.name += "_external"
+			t1.ldflags += " -linkmode=external"
+			tests = append(tests, t1)
+		}
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			exe := filepath.Join(tmpdir, test.name)
+			cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-ldflags=-buildid="+gobuildid+" "+test.ldflags, "-o", exe, goFile)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("%v: %v:\n%s", cmd.Args, err, out)
+			}
+			gnuBuildID, err := buildid.ReadELFNote(exe, string(ld.ELF_NOTE_BUILDINFO_NAME), ld.ELF_NOTE_BUILDINFO_TAG)
+			if err != nil {
+				t.Fatalf("can't read GNU build ID")
+			}
+			if string(gnuBuildID) != test.expect {
+				t.Errorf("build id mismatch: got %x, want %x", gnuBuildID, test.expect)
+			}
+		})
 	}
 }
 
@@ -496,5 +549,30 @@ func TestIssue51939(t *testing.T) {
 		if s.Flags&elf.SHF_ALLOC == 0 && s.Addr != 0 {
 			t.Errorf("section %s should not allocated with addr %x", s.Name, s.Addr)
 		}
+	}
+}
+
+func TestFlagR(t *testing.T) {
+	// Test that using the -R flag to specify a (large) alignment generates
+	// a working binary.
+	// (Test only on ELF for now. The alignment allowed differs from platform
+	// to platform.)
+	testenv.MustHaveGoBuild(t)
+	t.Parallel()
+	tmpdir := t.TempDir()
+	src := filepath.Join(tmpdir, "x.go")
+	if err := os.WriteFile(src, []byte(goSource), 0444); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(tmpdir, "x.exe")
+
+	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-ldflags=-R=0x100000", "-o", exe, src)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build failed: %v, output:\n%s", err, out)
+	}
+
+	cmd = testenv.Command(t, exe)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("executable failed to run: %v\n%s", err, out)
 	}
 }

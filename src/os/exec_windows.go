@@ -8,13 +8,23 @@ import (
 	"errors"
 	"internal/syscall/windows"
 	"runtime"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
 
+// Note that Process.mode is always modeHandle because Windows always requires
+// a handle. A manually-created Process literal is not valid.
+
 func (p *Process) wait() (ps *ProcessState, err error) {
-	handle := atomic.LoadUintptr(&p.handle)
+	handle, status := p.handleTransientAcquire()
+	switch status {
+	case statusDone:
+		return nil, ErrProcessDone
+	case statusReleased:
+		return nil, syscall.EINVAL
+	}
+	defer p.handleTransientRelease()
+
 	s, e := syscall.WaitForSingleObject(syscall.Handle(handle), syscall.INFINITE)
 	switch s {
 	case syscall.WAIT_OBJECT_0:
@@ -34,25 +44,20 @@ func (p *Process) wait() (ps *ProcessState, err error) {
 	if e != nil {
 		return nil, NewSyscallError("GetProcessTimes", e)
 	}
-	p.setDone()
-	// NOTE(brainman): It seems that sometimes process is not dead
-	// when WaitForSingleObject returns. But we do not know any
-	// other way to wait for it. Sleeping for a while seems to do
-	// the trick sometimes.
-	// See https://golang.org/issue/25965 for details.
-	defer time.Sleep(5 * time.Millisecond)
 	defer p.Release()
 	return &ProcessState{p.Pid, syscall.WaitStatus{ExitCode: ec}, &u}, nil
 }
 
 func (p *Process) signal(sig Signal) error {
-	handle := atomic.LoadUintptr(&p.handle)
-	if handle == uintptr(syscall.InvalidHandle) {
+	handle, status := p.handleTransientAcquire()
+	switch status {
+	case statusDone:
+		return ErrProcessDone
+	case statusReleased:
 		return syscall.EINVAL
 	}
-	if p.done() {
-		return ErrProcessDone
-	}
+	defer p.handleTransientRelease()
+
 	if sig == Kill {
 		var terminationHandle syscall.Handle
 		e := syscall.DuplicateHandle(^syscall.Handle(0), syscall.Handle(handle), ^syscall.Handle(0), &terminationHandle, syscall.PROCESS_TERMINATE, false, 0)
@@ -69,17 +74,22 @@ func (p *Process) signal(sig Signal) error {
 }
 
 func (p *Process) release() error {
-	handle := atomic.SwapUintptr(&p.handle, uintptr(syscall.InvalidHandle))
-	if handle == uintptr(syscall.InvalidHandle) {
+	// Drop the Process' reference and mark handle unusable for
+	// future calls.
+	//
+	// The API on Windows expects EINVAL if Release is called multiple
+	// times.
+	if old := p.handlePersistentRelease(statusReleased); old == statusReleased {
 		return syscall.EINVAL
 	}
-	e := syscall.CloseHandle(syscall.Handle(handle))
-	if e != nil {
-		return NewSyscallError("CloseHandle", e)
-	}
+
 	// no need for a finalizer anymore
 	runtime.SetFinalizer(p, nil)
 	return nil
+}
+
+func (p *Process) closeHandle() {
+	syscall.CloseHandle(syscall.Handle(p.handle))
 }
 
 func findProcess(pid int) (p *Process, err error) {
@@ -89,7 +99,7 @@ func findProcess(pid int) (p *Process, err error) {
 	if e != nil {
 		return nil, NewSyscallError("OpenProcess", e)
 	}
-	return newProcess(pid, uintptr(h)), nil
+	return newHandleProcess(pid, uintptr(h)), nil
 }
 
 func init() {

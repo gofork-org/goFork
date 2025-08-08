@@ -16,8 +16,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"internal/testenv"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -266,10 +268,26 @@ func compilerSupportsLocation() bool {
 	case "gcc":
 		return compiler.major >= 10
 	case "clang":
+		// TODO(65606): The clang toolchain on the LUCI builders is not built against
+		// zlib, the ASAN runtime can't actually symbolize its own stack trace. Once
+		// this is resolved, one way or another, switch this back to 'true'. We still
+		// have coverage from the 'gcc' case above.
+		if inLUCIBuild() {
+			return false
+		}
 		return true
 	default:
 		return false
 	}
+}
+
+// inLUCIBuild returns true if we're currently executing in a LUCI build.
+func inLUCIBuild() bool {
+	u, err := user.Current()
+	if err != nil {
+		return false
+	}
+	return testenv.Builder() != "" && u.Username == "swarming"
 }
 
 // compilerRequiredTsanVersion reports whether the compiler is the version required by Tsan.
@@ -293,11 +311,17 @@ func compilerRequiredAsanVersion(goos, goarch string) bool {
 	}
 	switch compiler.name {
 	case "gcc":
+		if goarch == "loong64" {
+			return compiler.major >= 14
+		}
 		if goarch == "ppc64le" {
 			return compiler.major >= 9
 		}
 		return compiler.major >= 7
 	case "clang":
+		if goarch == "loong64" {
+			return compiler.major >= 16
+		}
 		return compiler.major >= 9
 	default:
 		return false
@@ -512,7 +536,7 @@ func (c *config) checkRuntime() (skip bool, err error) {
 
 // srcPath returns the path to the given file relative to this test's source tree.
 func srcPath(path string) string {
-	return filepath.Join("testdata", path)
+	return "./testdata/" + path
 }
 
 // A tempDir manages a temporary directory within a test.
@@ -539,12 +563,7 @@ func (d *tempDir) Join(name string) string {
 }
 
 func newTempDir(t *testing.T) *tempDir {
-	t.Helper()
-	dir, err := os.MkdirTemp("", filepath.Dir(t.Name()))
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	return &tempDir{base: dir}
+	return &tempDir{base: t.TempDir()}
 }
 
 // hangProneCmd returns an exec.Cmd for a command that is likely to hang.

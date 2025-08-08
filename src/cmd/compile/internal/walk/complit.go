@@ -7,7 +7,7 @@ package walk
 import (
 	"cmd/compile/internal/base"
 	"cmd/compile/internal/ir"
-	"cmd/compile/internal/ssagen"
+	"cmd/compile/internal/ssa"
 	"cmd/compile/internal/staticdata"
 	"cmd/compile/internal/staticinit"
 	"cmd/compile/internal/typecheck"
@@ -18,7 +18,7 @@ import (
 // walkCompLit walks a composite literal node:
 // OARRAYLIT, OSLICELIT, OMAPLIT, OSTRUCTLIT (all CompLitExpr), or OPTRLIT (AddrExpr).
 func walkCompLit(n ir.Node, init *ir.Nodes) ir.Node {
-	if isStaticCompositeLiteral(n) && !ssagen.TypeOK(n.Type()) {
+	if isStaticCompositeLiteral(n) && !ssa.CanSSA(n.Type()) {
 		n := n.(*ir.CompLitExpr) // not OPTRLIT
 		// n can be directly represented in the read-only data section.
 		// Make direct reference to the static data. See issue 12841.
@@ -26,7 +26,7 @@ func walkCompLit(n ir.Node, init *ir.Nodes) ir.Node {
 		fixedlit(inInitFunction, initKindStatic, n, vstat, init)
 		return typecheck.Expr(vstat)
 	}
-	var_ := typecheck.Temp(n.Type())
+	var_ := typecheck.TempAt(base.Pos, ir.CurFunc, n.Type())
 	anylit(n, var_, init)
 	return var_
 }
@@ -85,7 +85,9 @@ const (
 func getdyn(n ir.Node, top bool) initGenType {
 	switch n.Op() {
 	default:
-		if ir.IsConstNode(n) {
+		// Handle constants in linker, except that linker cannot do
+		// the relocations necessary for string constants in FIPS packages.
+		if ir.IsConstNode(n) && (!n.Type().IsString() || !base.Ctxt.IsFIPS()) {
 			return initConst
 		}
 		return initDynamic
@@ -153,7 +155,10 @@ func isStaticCompositeLiteral(n ir.Node) bool {
 	case ir.OLITERAL, ir.ONIL:
 		return true
 	case ir.OCONVIFACE:
-		// See staticassign's OCONVIFACE case for comments.
+		// See staticinit.Schedule.StaticAssign's OCONVIFACE case for comments.
+		if base.Ctxt.IsFIPS() && base.Ctxt.Flag_shared {
+			return false
+		}
 		n := n.(*ir.ConvExpr)
 		val := ir.Node(n)
 		for val.Op() == ir.OCONVIFACE {
@@ -199,9 +204,6 @@ func fixedlit(ctxt initContext, kind initKind, n *ir.CompLitExpr, var_ ir.Node, 
 			if r.Op() == ir.OKEY {
 				kv := r.(*ir.KeyExpr)
 				k = typecheck.IndexConst(kv.Key)
-				if k < 0 {
-					base.Fatalf("fixedlit: invalid index %v", kv.Key)
-				}
 				r = kv.Value
 			}
 			a := ir.NewIndexExpr(base.Pos, var_, ir.NewInt(base.Pos, k))
@@ -341,7 +343,7 @@ func slicelit(ctxt initContext, n *ir.CompLitExpr, var_ ir.Node, init *ir.Nodes)
 	}
 
 	// make new auto *array (3 declare)
-	vauto := typecheck.Temp(types.NewPtr(t))
+	vauto := typecheck.TempAt(base.Pos, ir.CurFunc, types.NewPtr(t))
 
 	// set auto to point at new temp or heap (3 assign)
 	var a ir.Node
@@ -352,7 +354,7 @@ func slicelit(ctxt initContext, n *ir.CompLitExpr, var_ ir.Node, init *ir.Nodes)
 		}
 		a = initStackTemp(init, x, vstat)
 	} else if n.Esc() == ir.EscNone {
-		a = initStackTemp(init, typecheck.Temp(t), vstat)
+		a = initStackTemp(init, typecheck.TempAt(base.Pos, ir.CurFunc, t), vstat)
 	} else {
 		a = ir.NewUnaryExpr(base.Pos, ir.ONEW, ir.TypeNode(t))
 	}
@@ -372,9 +374,6 @@ func slicelit(ctxt initContext, n *ir.CompLitExpr, var_ ir.Node, init *ir.Nodes)
 		if value.Op() == ir.OKEY {
 			kv := value.(*ir.KeyExpr)
 			index = typecheck.IndexConst(kv.Key)
-			if index < 0 {
-				base.Fatalf("slicelit: invalid index %v", kv.Key)
-			}
 			value = kv.Value
 		}
 		a := ir.NewIndexExpr(base.Pos, vauto, ir.NewInt(base.Pos, index))
@@ -464,7 +463,7 @@ func maplit(n *ir.CompLitExpr, m ir.Node, init *ir.Nodes) {
 		// for i = 0; i < len(vstatk); i++ {
 		//	map[vstatk[i]] = vstate[i]
 		// }
-		i := typecheck.Temp(types.Types[types.TINT])
+		i := typecheck.TempAt(base.Pos, ir.CurFunc, types.Types[types.TINT])
 		rhs := ir.NewIndexExpr(base.Pos, vstate, i)
 		rhs.SetBounded(true)
 
@@ -497,8 +496,8 @@ func maplit(n *ir.CompLitExpr, m ir.Node, init *ir.Nodes) {
 	// Use temporaries so that mapassign1 can have addressable key, elem.
 	// TODO(josharian): avoid map key temporaries for mapfast_* assignments with literal keys.
 	// TODO(khr): assign these temps in order phase so we can reuse them across multiple maplits?
-	tmpkey := typecheck.Temp(m.Type().Key())
-	tmpelem := typecheck.Temp(m.Type().Elem())
+	tmpkey := typecheck.TempAt(base.Pos, ir.CurFunc, m.Type().Key())
+	tmpelem := typecheck.TempAt(base.Pos, ir.CurFunc, m.Type().Elem())
 
 	for _, r := range entries {
 		r := r.(*ir.KeyExpr)

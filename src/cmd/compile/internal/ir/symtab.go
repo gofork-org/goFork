@@ -10,17 +10,18 @@ import (
 )
 
 // Syms holds known symbols.
-var Syms struct {
+var Syms symsStruct
+
+type symsStruct struct {
 	AssertE2I         *obj.LSym
 	AssertE2I2        *obj.LSym
-	AssertI2I         *obj.LSym
-	AssertI2I2        *obj.LSym
 	Asanread          *obj.LSym
 	Asanwrite         *obj.LSym
 	CgoCheckMemmove   *obj.LSym
 	CgoCheckPtrWrite  *obj.LSym
 	CheckPtrAlignment *obj.LSym
 	Deferproc         *obj.LSym
+	Deferprocat       *obj.LSym
 	DeferprocStack    *obj.LSym
 	Deferreturn       *obj.LSym
 	Duffcopy          *obj.LSym
@@ -28,6 +29,7 @@ var Syms struct {
 	GCWriteBarrier    [8]*obj.LSym
 	Goschedguarded    *obj.LSym
 	Growslice         *obj.LSym
+	InterfaceSwitch   *obj.LSym
 	Memmove           *obj.LSym
 	Msanread          *obj.LSym
 	Msanwrite         *obj.LSym
@@ -40,24 +42,30 @@ var Syms struct {
 	PanicdottypeI     *obj.LSym
 	Panicnildottype   *obj.LSym
 	Panicoverflow     *obj.LSym
+	Racefuncenter     *obj.LSym
+	Racefuncexit      *obj.LSym
 	Raceread          *obj.LSym
 	Racereadrange     *obj.LSym
 	Racewrite         *obj.LSym
 	Racewriterange    *obj.LSym
+	TypeAssert        *obj.LSym
 	WBZero            *obj.LSym
 	WBMove            *obj.LSym
 	// Wasm
-	SigPanic        *obj.LSym
-	Staticuint64s   *obj.LSym
-	Typedmemmove    *obj.LSym
-	Udiv            *obj.LSym
-	WriteBarrier    *obj.LSym
-	Zerobase        *obj.LSym
-	ARM64HasATOMICS *obj.LSym
-	ARMHasVFPv4     *obj.LSym
-	X86HasFMA       *obj.LSym
-	X86HasPOPCNT    *obj.LSym
-	X86HasSSE41     *obj.LSym
+	SigPanic         *obj.LSym
+	Staticuint64s    *obj.LSym
+	Typedmemmove     *obj.LSym
+	Udiv             *obj.LSym
+	WriteBarrier     *obj.LSym
+	Zerobase         *obj.LSym
+	ARM64HasATOMICS  *obj.LSym
+	ARMHasVFPv4      *obj.LSym
+	Loong64HasLAMCAS *obj.LSym
+	Loong64HasLAM_BH *obj.LSym
+	Loong64HasLSX    *obj.LSym
+	X86HasFMA        *obj.LSym
+	X86HasPOPCNT     *obj.LSym
+	X86HasSSE41      *obj.LSym
 	// Wasm
 	WasmDiv *obj.LSym
 	// Wasm
@@ -68,8 +76,9 @@ var Syms struct {
 
 // Pkgs holds known packages.
 var Pkgs struct {
-	Go       *types.Pkg
-	Itab     *types.Pkg
-	Runtime  *types.Pkg
-	Coverage *types.Pkg
+	Go           *types.Pkg
+	Itab         *types.Pkg
+	Runtime      *types.Pkg
+	InternalMaps *types.Pkg
+	Coverage     *types.Pkg
 }

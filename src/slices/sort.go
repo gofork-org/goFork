@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:generate go run $GOROOT/src/sort/gen_sort_variants.go -generic
+
 package slices
 
 import (
@@ -19,10 +21,12 @@ func Sort[S ~[]E, E cmp.Ordered](x S) {
 // SortFunc sorts the slice x in ascending order as determined by the cmp
 // function. This sort is not guaranteed to be stable.
 // cmp(a, b) should return a negative number when a < b, a positive number when
-// a > b and zero when a == b.
+// a > b and zero when a == b or a and b are incomparable in the sense of
+// a strict weak ordering.
 //
 // SortFunc requires that cmp is a strict weak ordering.
 // See https://en.wikipedia.org/wiki/Weak_ordering#Strict_weak_orderings.
+// The function should return 0 for incomparable items.
 func SortFunc[S ~[]E, E any](x S, cmp func(a, b E) int) {
 	n := len(x)
 	pdqsortCmpFunc(x, 0, n, bits.Len(uint(n)), cmp)
@@ -115,10 +119,10 @@ func MaxFunc[S ~[]E, E any](x S, cmp func(a, b E) int) E {
 	return m
 }
 
-// BinarySearch searches for target in a sorted slice and returns the position
-// where target is found, or the position where target would appear in the
-// sort order; it also returns a bool saying whether the target is really found
-// in the slice. The slice must be sorted in increasing order.
+// BinarySearch searches for target in a sorted slice and returns the earliest
+// position where target is found, or the position where target would appear
+// in the sort order; it also returns a bool saying whether the target is
+// really found in the slice. The slice must be sorted in increasing order.
 func BinarySearch[S ~[]E, E cmp.Ordered](x S, target E) (int, bool) {
 	// Inlining is faster than calling BinarySearchFunc with a lambda.
 	n := len(x)
@@ -176,8 +180,8 @@ type xorshift uint64
 
 func (r *xorshift) Next() uint64 {
 	*r ^= *r << 13
-	*r ^= *r >> 17
-	*r ^= *r << 5
+	*r ^= *r >> 7
+	*r ^= *r << 17
 	return uint64(*r)
 }
 

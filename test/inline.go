@@ -1,5 +1,7 @@
 // errorcheckwithauto -0 -m -d=inlfuncswithclosures=1
 
+//go:build !goexperiment.newinliner
+
 // Copyright 2015 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -71,6 +73,7 @@ func l(x, y int) (int, int, error) { // ERROR "can inline l"
 		f := e
 		f(nil) // ERROR "inlining call to l.func1"
 	}
+	_ = e // prevent simple deadcode elimination after inlining
 	return y, x, nil
 }
 
@@ -107,6 +110,7 @@ func p() int { // ERROR "can inline p"
 
 func q(x int) int { // ERROR "can inline q"
 	foo := func() int { return x * 2 } // ERROR "can inline q.func1" "func literal does not escape"
+	_ = foo                            // prevent simple deadcode elimination after inlining
 	return foo()                       // ERROR "inlining call to q.func1"
 }
 
@@ -119,6 +123,8 @@ func r(z int) int {
 			return 2*y + x*z
 		}(x) // ERROR "inlining call to r.func2.1"
 	}
+	_, _ = foo, bar // prevent simple deadcode elimination after inlining
+
 	return foo(42) + bar(42) // ERROR "inlining call to r.func1" "inlining call to r.func2" "inlining call to r.r.func2.func3"
 }
 
@@ -126,7 +132,8 @@ func s0(x int) int { // ERROR "can inline s0"
 	foo := func() { // ERROR "can inline s0.func1" "func literal does not escape"
 		x = x + 1
 	}
-	foo() // ERROR "inlining call to s0.func1"
+	foo()   // ERROR "inlining call to s0.func1"
+	_ = foo // prevent simple deadcode elimination after inlining
 	return x
 }
 
@@ -135,6 +142,7 @@ func s1(x int) int { // ERROR "can inline s1"
 		return x
 	}
 	x = x + 1
+	_ = foo      // prevent simple deadcode elimination after inlining
 	return foo() // ERROR "inlining call to s1.func1"
 }
 
@@ -272,13 +280,13 @@ func ff(x int) { // ERROR "can inline ff"
 	if x < 0 {
 		return
 	}
-	gg(x - 1) // ERROR "inlining call to gg" "inlining call to hh"
+	gg(x - 1) // ERROR "inlining call to gg" "inlining call to hh" "inlining call to ff"
 }
 func gg(x int) { // ERROR "can inline gg"
-	hh(x - 1) // ERROR "inlining call to hh" "inlining call to ff"
+	hh(x - 1) // ERROR "inlining call to hh" "inlining call to ff" "inlining call to gg"
 }
 func hh(x int) { // ERROR "can inline hh"
-	ff(x - 1) // ERROR "inlining call to ff" "inlining call to gg"
+	ff(x - 1) // ERROR "inlining call to ff" "inlining call to gg" "inlining call to hh"
 }
 
 // Issue #14768 - make sure we can inline for loops.
@@ -324,9 +332,9 @@ func ii() { // ERROR "can inline ii"
 // Issue #42194 - make sure that functions evaluated in
 // go and defer statements can be inlined.
 func gd1(int) {
-	defer gd1(gd2()) // ERROR "inlining call to gd2"
+	defer gd1(gd2()) // ERROR "inlining call to gd2" "can inline gd1.deferwrap1"
 	defer gd3()()    // ERROR "inlining call to gd3"
-	go gd1(gd2())    // ERROR "inlining call to gd2"
+	go gd1(gd2())    // ERROR "inlining call to gd2" "can inline gd1.gowrap2"
 	go gd3()()       // ERROR "inlining call to gd3"
 }
 
@@ -391,5 +399,35 @@ loop:
 			break loop
 		}
 		select2(x, y) // ERROR "inlining call to select2"
+	}
+}
+
+// Issue #62211: inlining a function with unreachable "return"
+// statements could trip up phi insertion.
+func issue62211(x bool) { // ERROR "can inline issue62211"
+	if issue62211F(x) { // ERROR "inlining call to issue62211F"
+	}
+	if issue62211G(x) { // ERROR "inlining call to issue62211G"
+	}
+
+	// Initial fix CL caused a "non-monotonic scope positions" failure
+	// on code like this.
+	if z := 0; false {
+		panic(z)
+	}
+}
+
+func issue62211F(x bool) bool { // ERROR "can inline issue62211F"
+	if x || true {
+		return true
+	}
+	return true
+}
+
+func issue62211G(x bool) bool { // ERROR "can inline issue62211G"
+	if x || true {
+		return true
+	} else {
+		return true
 	}
 }

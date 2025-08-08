@@ -61,7 +61,7 @@ TEXT ·Compare<ABIInternal>(SB),NOSPLIT|NOFRAME,$0-56
 	CMP	R3,R6,CR7
 	ISEL	CR0LT,R4,R7,R9
 	SETB_CR0(R3)
-	BC	$12,30,LR	// beqlr cr7
+	BEQ	CR7,LR
 	BR	cmpbody<>(SB)
 
 TEXT runtime·cmpstring<ABIInternal>(SB),NOSPLIT|NOFRAME,$0-40
@@ -83,7 +83,7 @@ TEXT runtime·cmpstring<ABIInternal>(SB),NOSPLIT|NOFRAME,$0-40
 	MOVD	R5,R6
 	MOVD	R3,R5
 	SETB_CR0(R3)
-	BC	$12,30,LR	// beqlr cr7
+	BEQ	CR7,LR
 	BR	cmpbody<>(SB)
 
 #ifdef GOARCH_ppc64le
@@ -143,7 +143,7 @@ cmp64_loop:
 	ADD	$64,R5,R5	// increment to next 64 bytes of A
 	ADD	$64,R6,R6	// increment to next 64 bytes of B
 	BDNZ	cmp64_loop
-	BC	$12,2,LR	// beqlr
+	BEQ	CR0,LR		// beqlr
 
 	// Finish out tail with minimal overlapped checking.
 	// Note, 0 tail is handled by beqlr above.
@@ -215,7 +215,7 @@ cmp32:	// 32 - 63B
 	VCMPEQUDCC	V3,V4,V1
 	BGE	CR6,different
 
-	BC	$12,2,LR	// beqlr
+	BEQ	CR0,LR
 	ADD	R9,R10,R10
 
 	LXVD2X	(R9)(R5),V3
@@ -236,7 +236,7 @@ cmp16:	// 16 - 31B
 	LXVD2X	(R0)(R6),V4
 	VCMPEQUDCC	V3,V4,V1
 	BGE	CR6,different
-	BC	$12,2,LR	// beqlr
+	BEQ	CR0,LR
 
 	LXVD2X	(R9)(R5),V3
 	LXVD2X	(R9)(R6),V4
@@ -274,7 +274,16 @@ lower:
 	RET
 
 	PCALIGN $16
-cmp8:	// 8 - 15B
+cmp8:	// 8 - 15B (0 - 15B if GOPPC64_power10)
+#ifdef GOPPC64_power10
+	SLD	$56,R9,R9
+	LXVLL	R5,R9,V3	// Load bytes starting from MSB to LSB, unused are zero filled.
+	LXVLL	R6,R9,V4
+	VCMPUQ	V3,V4,CR0	// Compare as a 128b integer.
+	SETB_CR0(R6)
+	ISEL	CR0EQ,R3,R6,R3	// If equal, length determines the return value.
+	RET
+#else
 	CMP	R9,$8
 	BLT	cmp4
 	ANDCC	$7,R9,R9
@@ -330,3 +339,4 @@ cmp0:
 	SETB_CR0(R6)
 	ISEL	CR0EQ,R3,R6,R3
 	RET
+#endif
