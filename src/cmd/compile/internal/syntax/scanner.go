@@ -244,10 +244,10 @@ redo:
 	case '/':
 		s.nextch()
 
-        if s.ch == '\n' {
-            s.nextch()
-            goto redo
-        }
+		if s.ch == '\n' {
+			s.nextch()
+			goto redo
+		}
 
 		if s.ch == '/' {
 			s.nextch()
