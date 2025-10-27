@@ -85,7 +85,7 @@ func gofips140() string {
 }
 
 // isFIPSVersion reports whether v is a valid FIPS version,
-// of the form vX.Y.Z.
+// of the form vX.Y.Z or vX.Y.Z-hash.
 func isFIPSVersion(v string) bool {
 	if !strings.HasPrefix(v, "v") {
 		return false
@@ -99,7 +99,8 @@ func isFIPSVersion(v string) bool {
 		return false
 	}
 	v, ok = skipNum(v[len("."):])
-	return ok && v == ""
+	hasHash := strings.HasPrefix(v, "-") && len(v) == len("-")+8
+	return ok && (v == "" || hasHash)
 }
 
 // skipNum skips the leading text matching [0-9]+
@@ -307,8 +308,10 @@ func goriscv64() int {
 		return 20
 	case "rva22u64":
 		return 22
+	case "rva23u64":
+		return 23
 	}
-	Error = fmt.Errorf("invalid GORISCV64: must be rva20u64, rva22u64")
+	Error = fmt.Errorf("invalid GORISCV64: must be rva20u64, rva22u64, rva23u64")
 	v := DefaultGORISCV64[len("rva"):]
 	i := strings.IndexFunc(v, func(r rune) bool {
 		return r < '0' || r > '9'
@@ -440,6 +443,9 @@ func gogoarchTags() []string {
 		list := []string{GOARCH + "." + "rva20u64"}
 		if GORISCV64 >= 22 {
 			list = append(list, GOARCH+"."+"rva22u64")
+		}
+		if GORISCV64 >= 23 {
+			list = append(list, GOARCH+"."+"rva23u64")
 		}
 		return list
 	case "wasm":
