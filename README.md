@@ -1,4 +1,4 @@
-# goFork (v1.24.6):
+# goFork (v1.25.3):
 
 Fork golang to support Allman/Horstmann style of curly braces 
 
